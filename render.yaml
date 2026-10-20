@@ -1,0 +1,25 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Database: MongoDB Atlas (set MONGO_URI in the Render dashboard; never commit it).
+services:
+  - type: web
+    name: wasl-hrms
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: cd server && npm ci --omit=dev
+    startCommand: node server/src/index.js
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: NODE_ENV
+        value: production
+      - key: MONGO_URI
+        sync: false # you paste your Atlas connection string when creating the service
+      - key: JWT_SECRET
+        generateValue: true # Render creates a strong random secret
+      - key: JWT_EXPIRES
+        value: 8h
+      - key: SERVE_WEB
+        value: "true"
