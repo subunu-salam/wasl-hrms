@@ -963,6 +963,14 @@ async function agent(q) {
 const fmtTime = (d) => (d ? new Date(d).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Dubai' }) : '—');
 const hmFromMin = (m) => (m == null ? '—' : `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`);
 const distLabel = (m) => (m == null ? '' : m >= 1000 ? `${(m / 1000).toFixed(1)} km` : `${m} m`);
+// Where a clock-in came from: phone GPS, the shared Face ID tablet, or a biometric terminal.
+function locCell(a) {
+  const c = a?.clockIn || {}; const dev = String(c.device || '');
+  const via = dev.startsWith('face_kiosk:') ? `Tablet · ${esc(dev.slice(11))}` : /^(zkteco|hikvision|generic):/.test(dev) ? `Terminal · ${esc(dev.split(':')[1] || '')}` : '';
+  const where = c.lat != null ? `<a href="https://www.google.com/maps?q=${c.lat},${c.lng}" target="_blank" rel="noopener">${c.insideGeofence ? 'On site' : `${distLabel(c.distanceM)} away`}</a>` : '';
+  if (via) return `${via}${where ? ` · ${where}` : ''}`;
+  return where || '<span style="color:var(--bad)">No GPS</span>';
+}
 const flagPills = (flags = []) => flags.map((f) => pill(f.code === 'LATE' || f.code === 'LOW_GPS_ACCURACY' ? 'p-warn' : f.code === 'OVERTIME' || f.code === 'HR_APPROVED' ? 'p-n' : 'p-bad', { LATE: 'Late', OUTSIDE_GEOFENCE: 'Outside site', NO_GPS: 'No GPS', LOW_GPS_ACCURACY: 'Weak GPS', OVERTIME: 'Overtime', HR_APPROVED: 'HR approved' }[f.code] || f.code)).join(' ');
 let assistantLog = [];
 let pendingQuestion = '';
@@ -1270,7 +1278,7 @@ Object.assign(views, {
     <div class="panel tw" style="margin-top:16px"><table><thead><tr><th>Employee</th><th>Status</th><th>In</th><th>Out</th><th>Location</th><th>Flags</th><th></th></tr></thead><tbody>
     ${d.rows.map((x) => { const a = x.record; return `<tr><td><div style="display:flex;gap:10px;align-items:center"><span class="av">${esc(ini(x.employee.fullName))}</span><div>${esc(x.employee.fullName)}<div style="font-size:12px;color:var(--muted)">${esc(x.employee.department || '')} · ${esc(x.employee.employeeNo)}</div></div></div></td>
       <td>${stateP[x.state]}${x.leaveType ? ` <span style="font-size:12px;color:var(--muted)">${esc(x.leaveType)}</span>` : ''}</td><td class="num">${fmtTime(a?.clockIn?.at)}</td><td class="num">${fmtTime(a?.clockOut?.at)}</td>
-      <td style="font-size:13px">${a?.clockIn?.lat != null ? `<a href="https://www.google.com/maps?q=${a.clockIn.lat},${a.clockIn.lng}" target="_blank" rel="noopener">${a.clockIn.insideGeofence ? 'On site' : distLabel(a.clockIn.distanceM) + ' away'}</a>` : a ? '<span style="color:var(--bad)">No GPS</span>' : ''}</td>
+      <td style="font-size:13px">${a ? locCell(a) : ''}</td>
       <td>${a ? flagPills(a.flags) : ''}</td>
       <td style="white-space:nowrap">${a?.hasPhoto ? `<button class="btn sm" data-ph="${a._id}">Photo</button> ` : ''}${a && a.flags.some((f) => ['OUTSIDE_GEOFENCE', 'NO_GPS', 'LOW_GPS_ACCURACY'].includes(f.code)) && has('hr_admin', 'manager') ? `<button class="btn sm" data-ok="${a._id}">Approve</button>` : ''}</td></tr>`; }).join('')}
     </tbody></table></div><div id="phView"></div>`);
@@ -1484,7 +1492,7 @@ async function employeeProfile(id) {
       <div class="seg" role="group" aria-label="Month">${months.map((m) => `<button data-m="${m}" class="${m === month ? 'on' : ''}">${new Date(m + '-01').toLocaleDateString('en-GB', { month: 'short' })}</button>`).join('')}</div></div>
       <table style="margin-top:8px"><thead><tr><th>Date</th><th>In</th><th>Out</th><th>Worked</th><th>Location</th><th>Flags</th><th></th></tr></thead><tbody>
       ${d.attendance.records.map((a) => `<tr><td class="mono">${esc(a.date)}${a.seq ? ` <span class="lbl">#${a.seq + 1}</span>` : ''}</td><td class="num">${fmtTime(a.clockIn?.at)}</td><td class="num">${fmtTime(a.clockOut?.at)}</td><td class="num">${hmFromMin(a.minutesWorked)}</td>
-        <td style="font-size:13px">${a.clockIn?.lat != null ? `<a href="https://www.google.com/maps?q=${a.clockIn.lat},${a.clockIn.lng}" target="_blank" rel="noopener">${a.clockIn.insideGeofence ? 'On site' : `${distLabel(a.clockIn.distanceM)} away`}</a>` : '<span style="color:var(--bad)">No GPS</span>'}</td>
+        <td style="font-size:13px">${locCell(a)}</td>
         <td>${flagPills(a.flags) || '<span style="color:var(--muted)">On time</span>'}</td><td>${a.hasPhoto ? `<button class="btn sm" data-ph="${a._id}">Photo</button>` : ''}</td></tr>`).join('') || '<tr><td colspan="7" class="empty">No clock-ins this month.</td></tr>'}
       </tbody></table></div><div id="phView"></div>`);
     body.querySelectorAll('.seg [data-m]').forEach((b) => (b.onclick = () => { try { localStorage.setItem('wasl_empmonth', b.dataset.m); } catch {} reload(); }));
