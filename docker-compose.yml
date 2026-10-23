@@ -22,10 +22,7 @@ services:
     restart: unless-stopped
     env_file: .env
     environment:
-      MONGO_URI: mongodb://mongo:27017/wasl_hrms?replicaSet=rs0
       PORT: 4000
-    depends_on:
-      mongo: { condition: service_healthy }
     ports: ["4000:4000"]
 
   nginx: # optional TLS front door for Linode; start with: docker compose --profile proxy up -d
