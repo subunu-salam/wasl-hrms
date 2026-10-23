@@ -68,6 +68,10 @@ async function main() {
   try { info = await call('/hello'); } catch (e) { $('kSetup').hidden = false; $('kSetupErr').textContent = e.status === 401 ? e.message : `Can't reach the server: ${e.message}`; return; }
   $('kCompany').textContent = info.company || 'Wasl'; $('kSite').textContent = [info.site, info.device].filter(Boolean).join(' · ') || 'Face ID clock-in';
   keepAwake();
+  // The tablet is stationary: read its location on load and refresh every 10 minutes; sent with each punch.
+  let gps = null;
+  const locate = () => navigator.geolocation?.getCurrentPosition((p) => { gps = { lat: p.coords.latitude, lng: p.coords.longitude, accuracyM: Math.round(p.coords.accuracy) }; }, () => {}, { enableHighAccuracy: true, timeout: 20000, maximumAge: 300000 });
+  locate(); setInterval(locate, 10 * 60 * 1000);
   const v = $('kVideo');
   let f = null, stream = null;
   // Load the face models in the background while the buttons are showing, so a scan starts instantly.
@@ -124,7 +128,7 @@ async function main() {
       const photo = snapshot();
       show('scanning', 'Checking…', '', 1);
       let r;
-      try { r = await call('/identify', { direction, photo, descriptor: Array.from(d.descriptor), liveness: { blinks, moved } }); } catch (e) {
+      try { r = await call('/identify', { direction, photo, ...(gps ? { gps } : {}), descriptor: Array.from(d.descriptor), liveness: { blinks, moved } }); } catch (e) {
         show('bad', e.status === 401 ? 'Tablet link turned off' : 'No connection', e.status === 401 ? 'Ask HR to turn this tablet back on.' : 'Check the Wi-Fi and try again.');
         stopCam(); setTimeout(() => alive() && home(), 4000); return;
       }

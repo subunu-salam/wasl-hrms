@@ -12,7 +12,7 @@ import { decryptField } from '../../lib/fieldcrypt.js';
 import { AttendanceDevice, FaceProfile, FaceVerification, FeatureSettings } from '../models.js';
 import { identify, isDescriptor, DEFAULT_THRESHOLD } from '../lib/face.js';
 import { applyDevicePunch } from './time.js';
-import { localParts } from '../../lib/attendance.js';
+import { localParts, distanceMeters } from '../../lib/attendance.js';
 import { z, fail } from './_util.js';
 
 const r = Router();
@@ -44,7 +44,7 @@ r.get('/hello', ah(async (req, res) => {
 
 r.post('/identify', ah(async (req, res) => {
   const d = await kioskDevice(req);
-  const b = z.object({ direction: z.enum(['in', 'out', 'auto']).default('auto'), photo: z.string().regex(/^data:image\/jpeg;base64,/).max(450_000).optional(), descriptor: z.array(z.number()).length(128), liveness: z.object({ blinks: z.number().int().min(0).max(50).default(0), moved: z.boolean().default(false) }).default({}) }).parse(req.body);
+  const b = z.object({ gps: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracyM: z.number().min(0).max(100000).optional() }).optional(), direction: z.enum(['in', 'out', 'auto']).default('auto'), photo: z.string().regex(/^data:image\/jpeg;base64,/).max(450_000).optional(), descriptor: z.array(z.number()).length(128), liveness: z.object({ blinks: z.number().int().min(0).max(50).default(0), moved: z.boolean().default(false) }).default({}) }).parse(req.body);
   if (!isDescriptor(b.descriptor)) throw fail(400, 'Invalid face scan.');
   const out = await inTenant(d, async () => {
     const f = await FeatureSettings.findOne().lean();
@@ -74,6 +74,17 @@ r.post('/identify', ah(async (req, res) => {
     if (result === 'no_open_session') return { status: 'info', name: emp.fullName, firstName: first, message: 'You are not clocked in yet. Press Clock in first.' };
     if (!['clock_in', 'clock_out'].includes(result)) return { status: 'unknown', message: 'Could not record the punch. Please see HR.', result };
     // the tablet's photo goes on the attendance record, like the selfie on a phone clock-in
+    // tablet location on the punch (same fields as a phone clock-in), checked against the site's geofence
+    if (b.gps && rec) {
+      const est = await Establishment.findById(d.establishmentId || emp.establishmentId).select('geo').lean();
+      const site = est?.geo; const distanceM = site?.lat != null ? distanceMeters(b.gps, site) : undefined;
+      const inside = distanceM == null ? undefined : distanceM <= (site.radiusM || 300) + Math.min(b.gps.accuracyM || 0, 150);
+      const key = result === 'clock_in' ? 'clockIn' : 'clockOut';
+      const set = { [`${key}.lat`]: b.gps.lat, [`${key}.lng`]: b.gps.lng, [`${key}.accuracyM`]: b.gps.accuracyM, [`${key}.distanceM`]: distanceM, [`${key}.insideGeofence`]: inside };
+      const upd = { $set: set };
+      if (result === 'clock_in' && inside === false) upd.$push = { flags: { code: 'OUTSIDE_GEOFENCE', msg: `Tablet is ${distanceM >= 1000 ? `${(distanceM / 1000).toFixed(1)} km` : `${distanceM} m`} from the site` } };
+      await Attendance.updateOne({ _id: rec._id }, upd);
+    }
     if (b.photo && rec && (result === 'clock_in' || !rec.hasPhoto)) await Attendance.updateOne({ _id: rec._id }, { $set: { photo: b.photo, hasPhoto: true } });
     return { status: 'ok', result, name: emp.fullName, firstName: first, at: now, sessionStart: rec?.clockIn?.at, workedMinutes: rec?.minutesWorked || 0, late: result === 'clock_in' ? rec?.lateMinutes || 0 : 0, confidence: m.confidence };
   });
