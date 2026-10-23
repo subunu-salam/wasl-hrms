@@ -145,7 +145,7 @@ export const OvertimeApproval = tenantModel('OvertimeApproval', new Schema({
 }, { timestamps: true }), [[{ tenantId: 1, employeeId: 1, period: 1 }, { unique: true }]]);
 
 export const AttendanceDevice = tenantModel('AttendanceDevice', new Schema({
-  name: String, vendor: { type: String, enum: ['zkteco', 'hikvision', 'generic'], default: 'generic' },
+  name: String, vendor: { type: String, enum: ['zkteco', 'hikvision', 'generic', 'face_kiosk'], default: 'generic' },
   serial: String, establishmentId: { type: Id, ref: 'Establishment' },
   keyId: { type: String, required: true, unique: true }, secretEnc: { type: String, select: false },
   active: { type: Boolean, default: true }, lastSeenAt: Date, lastError: String,

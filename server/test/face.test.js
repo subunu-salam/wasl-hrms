@@ -1,7 +1,7 @@
 // Face attendance engine: enrollment checks and match decisions (synthetic descriptors, no camera needed).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ANGLES, distance, validateEnrollment, decide, isDescriptor, confidence } from '../src/ext/lib/face.js';
+import { ANGLES, distance, validateEnrollment, decide, isDescriptor, confidence, identify } from '../src/ext/lib/face.js';
 
 let seed = 7;
 const rnd = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647 - 0.5; };
@@ -54,4 +54,15 @@ test('buddy punching: a closer match to another employee fails and names them', 
 
 test('confidence scale', () => {
   assert.equal(confidence(0), 100); assert.equal(confidence(0.5), 50); assert.equal(confidence(1.2), 0);
+});
+
+test('tablet identification (1:N): right person, strangers rejected, look-alikes not guessed', () => {
+  const people = Array.from({ length: 30 }, (_, i) => ({ id: `e${i}`, face: person() }));
+  const profiles = people.map((p) => ({ employeeId: p.id, samples: enroll(p.face) }));
+  const r = identify(jitter(people[17].face, 0.04), profiles);
+  assert.ok(r.ok); assert.equal(r.employeeId, 'e17');
+  assert.equal(identify(person(), profiles).reason, 'not_recognised');
+  const twin = jitter(people[3].face, 0.02); // near-identical second person enrolled
+  const amb = identify(jitter(people[3].face, 0.03), [...profiles, { employeeId: 'twin', samples: enroll(twin) }]);
+  assert.ok(!amb.ok); assert.equal(amb.reason, 'ambiguous');
 });

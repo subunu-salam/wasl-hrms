@@ -64,3 +64,16 @@ export function decide({ probe, own, others = [], threshold = DEFAULT_THRESHOLD,
   if (closestOther && closestOther.score < mine.score) reasons.push('Face is a closer match to another employee.');
   return { passed: !reasons.length, score: Math.round(mine.score * 1000) / 1000, confidence: confidence(mine.score, threshold), otherEmployeeId: closestOther && closestOther.score < mine.score ? closestOther.employeeId : null, reasons };
 }
+
+/**
+ * 1:N identification for a shared tablet: who, out of everyone enrolled, is this?
+ * Passes only when the best person is within the threshold AND clearly ahead of the runner-up, so two
+ * look-alikes never get each other's punches. profiles: [{ employeeId, samples }]
+ */
+export function identify(probe, profiles, threshold = DEFAULT_THRESHOLD, margin = 0.06) {
+  const ranked = profiles.map((p) => ({ employeeId: p.employeeId, score: matchScore(probe, p.samples).score })).filter((x) => Number.isFinite(x.score)).sort((a, b) => a.score - b.score);
+  const [best, second] = ranked;
+  if (!best || best.score > threshold) return { ok: false, reason: 'not_recognised', best: best?.score ?? null };
+  if (second && second.score - best.score < margin && second.score <= threshold) return { ok: false, reason: 'ambiguous', best: best.score };
+  return { ok: true, employeeId: best.employeeId, score: Math.round(best.score * 1000) / 1000, confidence: confidence(best.score, threshold) };
+}

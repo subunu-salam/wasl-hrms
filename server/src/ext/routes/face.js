@@ -1,12 +1,14 @@
 // Face attendance: employees enroll a multi-angle face scan in their own login, then each clock-in/out is verified
 // against it. Descriptors are computed in the browser; only the 128-number vectors are stored (no face photos).
 import { Router } from 'express';
+import { randomBytes } from 'node:crypto';
+import { encryptField } from '../../lib/fieldcrypt.js';
 import { Employee, Notification } from '../../models/index.js';
 import { authenticate, requireRole, restrictEmployees, audit, ah } from '../../middleware/auth.js';
 import { localParts } from '../../lib/attendance.js';
-import { FaceProfile, FaceVerification, FeatureSettings } from '../models.js';
+import { FaceProfile, FaceVerification, FeatureSettings, AttendanceDevice } from '../models.js';
 import { ANGLES, DEFAULT_THRESHOLD, isDescriptor, validateEnrollment, decide } from '../lib/face.js';
-import { z, fail, oid } from './_util.js';
+import { z, fail, oid, publicBase } from './_util.js';
 
 const r = Router();
 r.use(authenticate, restrictEmployees);
@@ -79,6 +81,36 @@ r.put('/attendance/face/settings', HR, ah(async (req, res) => {
   await FeatureSettings.findOneAndUpdate({}, { $set: { faceAttendance: b } }, { upsert: true });
   await audit(req, 'face.settings', 'FeatureSettings', null, null, b); res.json(b);
 }));
+// HR enrolls someone in person (staff without a login or phone, e.g. retail on the shared tablet).
+r.post('/attendance/face/:employeeId/enroll', HR, ah(async (req, res) => {
+  const employeeId = oid.parse(req.params.employeeId);
+  if (!(await Employee.exists({ _id: employeeId }))) throw fail(404, 'Employee not found');
+  const b = z.object({ samples: z.array(sample).min(ANGLES.length).max(20) }).parse(req.body);
+  const s = await settings();
+  const v = validateEnrollment(b.samples, s.threshold);
+  if (!v.ok) throw fail(400, v.errors.join(' '));
+  const angles = [...new Set(b.samples.map((x) => x.angle))];
+  await FaceProfile.findOneAndUpdate({ employeeId }, { $set: { samples: b.samples, angles, enrolledAt: new Date(), enrolledBy: req.user.id, active: true, failures: 0 } }, { upsert: true, new: true });
+  await audit(req, 'face.enroll_by_hr', 'FaceProfile', employeeId, null, { angles });
+  res.status(201).json({ enrolled: true, angles });
+}));
+
+// Shared-tablet links ("Look & Verify" kiosk). The key travels in the URL fragment, so it never reaches server logs.
+r.get('/attendance/kiosks', HR, ah(async (req, res) => res.json(await AttendanceDevice.find({ vendor: 'face_kiosk' }).sort({ createdAt: -1 }).populate('establishmentId', 'name').lean())));
+r.post('/attendance/kiosks', HR, ah(async (req, res) => {
+  const b = z.object({ name: z.string().min(2).max(60), establishmentId: oid.optional() }).parse(req.body);
+  const secret = randomBytes(24).toString('base64url'); const keyId = `kio_${randomBytes(6).toString('hex')}`;
+  const d = await AttendanceDevice.create({ ...b, vendor: 'face_kiosk', keyId, secretEnc: encryptField(secret) });
+  await audit(req, 'kiosk.create', 'AttendanceDevice', d._id, null, { name: b.name });
+  res.status(201).json({ device: d, url: `${publicBase(req)}/kiosk.html#k=${keyId}.${secret}`, note: 'Open this link once on the tablet; it remembers it. Anyone with the link can record punches for enrolled faces, so share it only with the tablet.' });
+}));
+r.patch('/attendance/kiosks/:id', HR, ah(async (req, res) => {
+  const b = z.object({ active: z.boolean() }).parse(req.body);
+  const d = await AttendanceDevice.findOneAndUpdate({ _id: oid.parse(req.params.id), vendor: 'face_kiosk' }, { $set: b }, { new: true });
+  if (!d) throw fail(404, 'Tablet not found');
+  await audit(req, b.active ? 'kiosk.enable' : 'kiosk.disable', 'AttendanceDevice', d._id); res.json(d);
+}));
+
 r.delete('/attendance/face/:employeeId', HR, ah(async (req, res) => {
   oid.parse(req.params.employeeId);
   await FaceProfile.deleteOne({ employeeId: req.params.employeeId });

@@ -119,10 +119,10 @@ export function profileMenuHtml(ctx) {
 function palette(ctx, mode = 'search') {
   const allowed = ctx.mods();
   const actions = [
-    ['Run payroll', 'pay'], ['Approve leave', 'leave'], ['New loan or fine', 'payplus'], ['Plan a hire with the AI agent', 'talent'], ['Upload a document', 'docs'], ['Paint the roster', 'timeplus'], ['Export a report', 'platform'], ['Check Emiratisation quota', 'emi'],
+    ['New employee', 'emp', 'waslNewEmployee'], ['Open the Face ID tablet link', 'timeplus', 'waslKioskLink'], ['Run payroll', 'pay'], ['Approve leave', 'leave'], ['New loan or fine', 'payplus'], ['Plan a hire with the AI agent', 'talent'], ['Upload a document', 'docs'], ['Paint the roster', 'timeplus'], ['Export a report', 'platform'], ['Check Emiratisation quota', 'emi'],
     ['Clock in', 'eclock'], ['Apply for leave', 'eleave'], ['New expense claim', 'eservices'], ['Request a letter', 'ereq'], ['Download a payslip', 'epay'], ['Ask the voice assistant', 'evoice'], ['Thank a colleague', 'egrowth'],
   ].filter(([, m]) => allowed.includes(m));
-  const items = mode === 'add' ? actions.map(([l, m]) => ({ l, m, d: ctx.t(m) })) : allowed.map((m) => ({ l: ctx.t(m), m, d: DESC[m] || '' })).concat(actions.map(([l, m]) => ({ l, m, d: ctx.t(m) })));
+  const items = mode === 'add' ? actions.map(([l, m, fn]) => ({ l, m, fn, d: ctx.t(m) })) : allowed.map((m) => ({ l: ctx.t(m), m, d: DESC[m] || '' })).concat(actions.map(([l, m, fn]) => ({ l, m, fn, d: ctx.t(m) })));
   const el = document.createElement('div'); el.className = 'sheet cpal-wrap';
   el.innerHTML = `<div class="cpal panel" role="dialog" aria-modal="true" aria-label="${mode === 'add' ? 'Quick create' : 'Search'}"><div class="cpal-in">${ctx.icon(mode === 'add' ? 'M12 5v14M5 12h14' : 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4', 18)}<input id="cpQ" placeholder="${mode === 'add' ? 'What do you want to create?' : 'Jump to a page or action…'}" autocomplete="off"><kbd>Esc</kbd></div><div class="cpal-list" id="cpL"></div></div>`;
   document.body.appendChild(el);
@@ -130,8 +130,8 @@ function palette(ctx, mode = 'search') {
   const close = () => el.remove();
   const paint = () => {
     const s = q.value.toLowerCase(); const rows = items.filter((x) => !s || `${x.l} ${x.d}`.toLowerCase().includes(s)).slice(0, 10); sel = Math.min(sel, Math.max(0, rows.length - 1));
-    list.innerHTML = rows.map((x, i) => `<button class="cpal-row ${i === sel ? 'on' : ''}" data-m="${x.m}">${ctx.icon(ctx.ICONS[x.m], 16)}<span><b>${ctx.esc(x.l)}</b><small>${ctx.esc(x.d)}</small></span></button>`).join('') || '<div class="empty">No matches</div>';
-    list.onclick = (e) => { const b = e.target.closest('[data-m]'); if (b) { close(); ctx.go(b.dataset.m); } };
+    list.innerHTML = rows.map((x, i) => `<button class="cpal-row ${i === sel ? 'on' : ''}" data-m="${x.m}" data-fn="${x.fn || ''}">${ctx.icon(ctx.ICONS[x.m], 16)}<span><b>${ctx.esc(x.l)}</b><small>${ctx.esc(x.d)}</small></span></button>`).join('') || '<div class="empty">No matches</div>';
+    list.onclick = (e) => { const b = e.target.closest('[data-m]'); if (b) { close(); ctx.go(b.dataset.m); if (b.dataset.fn) setTimeout(() => window[b.dataset.fn]?.(), 350); } };
     return rows;
   };
   let rows = paint();
@@ -139,7 +139,7 @@ function palette(ctx, mode = 'search') {
   q.onkeydown = (e) => {
     if (e.key === 'ArrowDown') { sel = Math.min(sel + 1, rows.length - 1); rows = paint(); e.preventDefault(); }
     else if (e.key === 'ArrowUp') { sel = Math.max(sel - 1, 0); rows = paint(); e.preventDefault(); }
-    else if (e.key === 'Enter' && rows[sel]) { close(); ctx.go(rows[sel].m); }
+    else if (e.key === 'Enter' && rows[sel]) { close(); ctx.go(rows[sel].m); if (rows[sel].fn) setTimeout(() => window[rows[sel].fn]?.(), 350); }
     else if (e.key === 'Escape') close();
   };
   el.onclick = (e) => { if (e.target === el) close(); };
@@ -242,7 +242,7 @@ export function wireShell(ctx) {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); palette(S, 'search'); return; }
       if (typing || e.ctrlKey || e.metaKey || e.altKey || document.querySelector('.sheet')) return;
       if (e.key === '/') { e.preventDefault(); document.getElementById('cmd')?.focus(); }
-      else if (e.key === 'n') palette(S, 'add');
+      else if (e.key === 'n') { e.preventDefault(); palette(S, 'add'); }
       else if (e.key === 'D' && e.shiftKey) document.getElementById('rMode')?.click();
       else if (e.key === 'g') gPrefix = Date.now();
       else if (Date.now() - gPrefix < 900) { const m = (S.isStaff() ? { p: 'pay', e: 'emp', d: 'dash', l: 'leave', a: 'attendance' } : { p: 'epay', d: 'ehome', l: 'eleave', a: 'eclock', e: 'eservices' })[e.key]; if (m) S.go(m); gPrefix = 0; }

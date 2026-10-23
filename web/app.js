@@ -1246,6 +1246,53 @@ function sheetForm(title, inner, onSubmit, submitLabel = 'Save changes') {
   return sh;
 }
 
+// ---------------- New employee (People → New employee, Quick create → New employee) ----------------
+async function newEmployeeSheet() {
+  const [ests, list] = await Promise.all([api('/establishments'), api('/employees')]);
+  // suggest the next number in the company's own pattern (e.g. ANT-107)
+  const nums = list.map((e) => /^(.*?)(\d+)$/.exec(e.employeeNo || '')).filter(Boolean);
+  const pre = nums.length ? nums.sort((a, b) => b[2] - a[2])[0] : null;
+  const nextNo = pre ? `${pre[1]}${String(Number(pre[2]) + 1).padStart(pre[2].length, '0')}` : 'EMP-001';
+  const depts = [...new Set(list.map((e) => e.department).filter(Boolean))].sort();
+  const f = (id, label, input, full) => `<label class="nf${full ? ' full' : ''}"><span>${label}</span>${input}</label>`;
+  const inp = (id, attrs = '') => `<input id="${id}" ${attrs}>`;
+  const sh = sheetForm('New employee', `<p style="margin:0;color:var(--muted);font-size:14px">Adds the employee to payroll, attendance and compliance. Bank details can be added later.</p>
+    <div class="nfgrid">
+      ${f('ne_name', 'Full name *', inp('ne_name', 'required minlength="2" placeholder="e.g. Mariam Al Falasi"'), true)}
+      ${f('ne_no', 'Employee no. *', inp('ne_no', `required value="${esc(nextNo)}"`))}
+      ${f('ne_est', 'Company / site *', `<select id="ne_est" required>${ests.map((e) => `<option value="${e._id}" ${currentEst()?._id === e._id ? 'selected' : ''}>${esc(e.name)}</option>`).join('')}</select>`)}
+      ${f('ne_job', 'Job title *', inp('ne_job', 'required placeholder="e.g. Store associate"'))}
+      ${f('ne_dept', 'Team', `<input id="ne_dept" list="ne_depts" placeholder="e.g. Retail"><datalist id="ne_depts">${depts.map((d) => `<option value="${esc(d)}">`).join('')}</datalist>`)}
+      ${f('ne_nat', 'Nationality *', inp('ne_nat', 'required placeholder="e.g. India"'))}
+      ${f('ne_join', 'Joining date *', inp('ne_join', `type="date" required value="${new Date().toISOString().slice(0, 10)}"`))}
+      ${f('ne_ct', 'Contract', `<select id="ne_ct"><option value="full-time">Full-time</option><option value="part-time">Part-time</option><option value="temporary">Temporary</option><option value="flexible">Flexible</option></select>`)}
+      ${f('ne_basic', 'Basic salary (AED / month) *', inp('ne_basic', 'required inputmode="decimal" placeholder="4000"'))}
+      ${f('ne_house', 'Housing (AED)', inp('ne_house', 'inputmode="decimal" placeholder="0"'))}
+      ${f('ne_trans', 'Transport (AED)', inp('ne_trans', 'inputmode="decimal" placeholder="0"'))}
+      ${f('ne_iban', 'IBAN (optional)', inp('ne_iban', 'placeholder="AE07 0331 2345 6789 0123 456"'), true)}
+      <label class="nf full" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="ne_uae" style="width:auto"> <span>UAE National (counts toward Emiratisation)</span></label>
+    </div>`, async (sheet) => {
+    const v = (id) => sheet.querySelector('#' + id).value.trim();
+    const body = { fullName: v('ne_name'), employeeNo: v('ne_no'), establishmentId: v('ne_est'), jobTitle: v('ne_job'), department: v('ne_dept') || undefined, nationality: v('ne_nat'), joinDate: v('ne_join'), contractType: v('ne_ct'), basic: v('ne_basic'), housing: v('ne_house') || 0, transport: v('ne_trans') || 0, isUaeNational: sheet.querySelector('#ne_uae').checked };
+    if (v('ne_iban')) body.iban = v('ne_iban').replace(/\s+/g, '').toUpperCase();
+    const emp = await api('/employees', { method: 'POST', body });
+    toast(`${emp.fullName || body.fullName} added`);
+    if (window.waslFace?.hrEnroll && confirmFace(emp)) return;
+    if (cur === 'emp') views.emp().catch(fail);
+  }, 'Add employee');
+  sh.querySelector('#ne_uae').onchange = (e) => { if (e.target.checked) sh.querySelector('#ne_nat').value = 'United Arab Emirates'; };
+}
+window.waslNewEmployee = () => newEmployeeSheet().catch(fail);
+// After adding someone, offer to enroll their face right away (for staff who clock in on the shared tablet).
+function confirmFace(emp) {
+  const bar = document.createElement('div'); bar.className = 'sheet';
+  bar.innerHTML = `<div class="sheet-card panel fid-card"><div class="fid-head"><h2>Set up Face ID for ${esc(emp.fullName)}?</h2><p>So they can clock in on the shared tablet with a glance. Takes about 20 seconds with them in front of this camera.</p></div><div class="fid-actions"><button class="btn" data-x="no">Later</button><button class="btn pri" data-x="yes">Scan face now</button></div></div>`;
+  document.body.appendChild(bar);
+  bar.querySelector('[data-x=no]').onclick = () => { bar.remove(); if (cur === 'emp') views.emp().catch(fail); };
+  bar.querySelector('[data-x=yes]').onclick = async () => { bar.remove(); await window.waslFace.hrEnroll(emp._id, emp.fullName); if (cur === 'emp') views.emp().catch(fail); };
+  return true;
+}
+
 async function employeeDirectory() {
   const list = await api(`/employees${currentEst()?._id ? `?establishmentId=${currentEst()._id}` : ''}`);
   const depts = [...new Set(list.map((e) => e.department).filter(Boolean))].sort();
@@ -1257,8 +1304,10 @@ async function employeeDirectory() {
     <label class="sr" for="empDept">Team</label><select id="empDept" class="btn"><option value="">All teams</option>${depts.map((d) => `<option ${saved.dept === d ? 'selected' : ''}>${esc(d)}</option>`).join('')}</select>
     <label class="sr" for="empStatus">Status</label><select id="empStatus" class="btn"><option value="">Any status</option>${['active', 'onboarding', 'notice', 'exited'].map((s) => `<option value="${s}" ${saved.status === s ? 'selected' : ''}>${s[0].toUpperCase() + s.slice(1)}</option>`).join('')}</select>
     <span id="empCount" class="lbl" style="margin-inline-start:auto"></span>
+    ${has('hr_admin') ? `<button class="btn pri" id="newEmpBtn">${icon('M12 5v14M5 12h14', 16)}<span>New employee</span></button>` : ''}
   </div>
   <div class="panel tw" style="padding-top:8px"><table class="clickable"><thead><tr><th>Employee</th><th>Role</th><th>Team</th><th>Nationality</th><th>Joined</th><th>Status</th><th>IBAN</th><th class="r">Basic (AED)</th></tr></thead><tbody id="empRows"></tbody></table><div class="pager" id="empPager"></div></div>`);
+  $('#newEmpBtn')?.addEventListener('click', () => newEmployeeSheet());
   const draw = () => {
     const q = $('#empQ').value.trim().toLowerCase(), dept = $('#empDept').value, st = $('#empStatus').value;
     try { localStorage.setItem('wasl_empfilter', JSON.stringify({ q, dept, status: st })); } catch {}
