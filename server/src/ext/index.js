@@ -13,6 +13,7 @@ import platform from './routes/platform.js';
 import ai from './routes/ai.js';
 import v1 from './routes/v1.js';
 import face, { faceGate } from './routes/face.js';
+import kiosk from './routes/kiosk.js';
 import { initExtJobs } from './jobs.js';
 import { metricsMiddleware, metricsHandler } from './lib/metrics.js';
 import { compression } from './lib/compress.js';
@@ -20,6 +21,7 @@ import { compression } from './lib/compress.js';
 export function mountPublic(app) {
   app.use(metricsMiddleware);
   if (process.env.COMPRESSION !== 'false') app.use(compression); // gzip API + static (set COMPRESSION=false if nginx already compresses)
+  app.use('/api/public/kiosk', kiosk); // shared Face ID tablet (own JSON parser; before the raw-body public router)
   app.use('/api/public', publicRoutes);
   app.post(['/api/me/clock-in', '/api/me/clock-out'], ...faceGate); // Face ID check before the existing punch routes
   app.use('/api/v1', express.json({ limit: '1mb' }), v1);

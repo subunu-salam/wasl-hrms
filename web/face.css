@@ -34,3 +34,10 @@
 @media (max-width:560px){.fid-banner{flex-wrap:wrap}.fid-btns{width:100%}}
 .fid-intro{width:64px;height:64px;margin:4px auto 0;border-radius:18px;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent-ink)}
 .fid-intro svg{width:36px;height:36px}
+/* New employee form */
+.nfgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.nf{display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--muted)}
+.nf.full{grid-column:1/-1}
+.nf input,.nf select{font:inherit;font-size:14px;color:var(--ink);background:var(--surface);border:1px solid var(--line-2);border-radius:10px;min-height:40px;padding:8px 12px}
+.nf input:focus,.nf select:focus{outline:2px solid var(--accent);outline-offset:1px}
+@media (max-width:560px){.nfgrid{grid-template-columns:1fr}}

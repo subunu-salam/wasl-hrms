@@ -106,8 +106,8 @@ function snapshot(v) {
 const ANG = { front: 'Look straight', left: 'Turn left', right: 'Turn right', up: 'Look up', down: 'Look down' };
 const ARC = { right: [-0.6, 0.6], down: [Math.PI / 2 - 0.6, Math.PI / 2 + 0.6], left: [Math.PI - 0.6, Math.PI + 0.6], up: [-Math.PI / 2 - 0.6, -Math.PI / 2 + 0.6] };
 
-export async function enroll() {
-  const S = openSheet('Set up Face ID', 'A quick 360° scan from your own camera. Only a numeric face signature is stored, never the video.');
+export async function enroll(opt = {}) {
+  const S = openSheet(opt.title || 'Set up Face ID', opt.sub || 'A quick 360° scan from your own camera. Only a numeric face signature is stored, never the video.');
   const steps = S.sheet.querySelector('.fid-steps');
   const paintSteps = (got) => (steps.innerHTML = Object.keys(ANG).map((a) => `<span class="${got[a] ? 'on' : ''}">${got[a] ? '✓ ' : ''}${ANG[a]}</span>`).join(''));
   return new Promise((resolve) => {
@@ -159,8 +159,8 @@ export async function enroll() {
         }
         if (!S.alive()) return;
         S.say('Saving…');
-        await C.api('/me/face/enroll', { method: 'POST', body: { samples } });
-        S.success(); S.say('Face ID is set up. You can now clock in with a glance.', 'ok'); result = true;
+        await C.api(opt.url || '/me/face/enroll', { method: 'POST', body: { samples } });
+        S.success(); S.say(opt.done || 'Face ID is set up. You can now clock in with a glance.', 'ok'); result = true;
         await sleep(1300); S.close(); resolve(true);
       } catch (e) {
         if (!S.alive()) return;
@@ -300,4 +300,12 @@ function init(ctx) {
   window.addEventListener('storage', () => { try { if (!localStorage.getItem('wasl_token')) sessionStorage.removeItem('wasl_face_prompted'); } catch { /* ignore */ } });
 }
 
-window.waslFace = { init, reset, gate, enroll, verify, mountCard };
+/** HR scans an employee in person (for staff who only use the shared tablet). */
+async function hrEnroll(employeeId, name) {
+  const ok = await enroll({ url: `/attendance/face/${employeeId}/enroll`, title: `Face ID for ${name}`, sub: `Ask ${name.split(' ')[0]} to look at this camera and slowly roll their head in a circle. Only a numeric signature is stored.`, done: `${name.split(' ')[0]} can now clock in on the shared tablet.` });
+  if (ok) C.toast(`Face ID saved for ${name}`);
+  return ok;
+}
+window.waslKioskLink = () => { try { localStorage.setItem('wasl_tab_timeplus', 'face'); } catch { /* ignore */ } document.querySelector('[data-tab="face"]')?.click(); };
+
+window.waslFace = { init, reset, gate, enroll, hrEnroll, verify, mountCard };
