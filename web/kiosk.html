@@ -16,6 +16,10 @@
 </header>
 
 <main class="kstage" id="kStage" data-state="boot">
+  <div class="kchoose" id="kChoose">
+    <button class="kbig in" id="kIn" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M15 12H3"/></svg><b>Clock in</b><small>Start your shift</small></button>
+    <button class="kbig out" id="kOut" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg><b>Clock out</b><small>End your shift</small></button>
+  </div>
   <div class="kcam">
     <video id="kVideo" playsinline muted autoplay></video>
     <svg class="kring" viewBox="0 0 100 100" aria-hidden="true"><circle class="track" cx="50" cy="50" r="47"/><circle class="arc" id="kArc" cx="50" cy="50" r="47" pathLength="100"/></svg>
@@ -26,6 +30,7 @@
     <h1 id="kTitle">Starting camera…</h1>
     <p id="kSub">One moment</p>
     <div class="ktimer" id="kTimer" hidden></div>
+    <div><button class="kbtn kcancel" id="kCancel" type="button" hidden>Cancel</button></div>
   </div>
 </main>
 
@@ -38,7 +43,7 @@
   </div>
 </section>
 
-<footer class="kfoot"><span id="kFootMsg">Look at the camera to clock in or out</span><button id="kFull" class="kbtn" type="button">Full screen</button></footer>
+<footer class="kfoot"><span id="kFootMsg">Tap Clock in or Clock out, then look at the camera</span><button id="kFull" class="kbtn" type="button">Full screen</button></footer>
 <script type="module" src="kiosk.js"></script>
 </body>
 </html>

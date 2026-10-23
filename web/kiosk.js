@@ -68,62 +68,79 @@ async function main() {
   try { info = await call('/hello'); } catch (e) { $('kSetup').hidden = false; $('kSetupErr').textContent = e.status === 401 ? e.message : `Can't reach the server: ${e.message}`; return; }
   $('kCompany').textContent = info.company || 'Wasl'; $('kSite').textContent = [info.site, info.device].filter(Boolean).join(' · ') || 'Face ID clock-in';
   keepAwake();
-  show('boot', 'Starting camera…', 'Allow camera access if asked');
   const v = $('kVideo');
-  let f;
-  try {
-    const [m, stream] = await Promise.all([import(LIB), navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false })]);
-    f = m.default || m; v.srcObject = stream; await v.play().catch(() => {});
-    show('boot', 'Loading Face ID…', 'Only the first time on this tablet');
-    await Promise.all([f.nets.tinyFaceDetector.loadFromUri(MODELS), f.nets.faceLandmark68Net.loadFromUri(MODELS), f.nets.faceRecognitionNet.loadFromUri(MODELS)]);
-  } catch (e) {
-    show('bad', e?.name === 'NotAllowedError' ? 'Camera is blocked' : 'Face ID could not start', e?.name === 'NotAllowedError' ? 'Allow the camera for this site in the browser settings, then reload.' : 'Check the internet connection, then reload this page.');
-    return;
+  let f = null, stream = null;
+  // Load the face models in the background while the buttons are showing, so a scan starts instantly.
+  show('home', 'Clock in or out', 'Tap a button, then look at the camera');
+  const ready = (async () => { const m = await import(LIB); const lib = m.default || m; await Promise.all([lib.nets.tinyFaceDetector.loadFromUri(MODELS), lib.nets.faceLandmark68Net.loadFromUri(MODELS), lib.nets.faceRecognitionNet.loadFromUri(MODELS)]); f = lib; return lib; })();
+  ready.catch(() => {});
+  const stopCam = () => { stream?.getTracks().forEach((t) => t.stop()); stream = null; v.srcObject = null; };
+  let run = 0;
+  const home = () => { run++; stopCam(); timer(null); $('kCancel').hidden = true; show('home', 'Clock in or out', 'Tap a button, then look at the camera'); };
+  $('kCancel').onclick = home;
+  $('kIn').onclick = () => scan('in');
+  $('kOut').onclick = () => scan('out');
+
+  function snapshot() {
+    const w = Math.min(360, v.videoWidth || 360), h = Math.round(((v.videoHeight || 270) / (v.videoWidth || 360)) * w);
+    const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(v, 0, 0, w, h);
+    return c.toDataURL('image/jpeg', 0.72);
   }
-  const opts = new f.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
-  const idle = () => { timer(null); show('idle', 'Look at the camera', 'to clock in or out'); };
-  idle();
 
-  let since = 0, track = [], blinks = 0, earAvg = null, closed = false, busy = false, pauseUntil = 0;
-  const reset = () => { since = 0; track = []; blinks = 0; earAvg = null; closed = false; };
-  for (;;) {
-    await new Promise((r) => requestAnimationFrame(r));
-    if (busy || Date.now() < pauseUntil) continue;
-    if (stage.dataset.state === 'ok' || stage.dataset.state === 'bad') idle();
-    const det = await f.detectSingleFace(v, opts).withFaceLandmarks();
-    if (!det) { if (since) { reset(); idle(); } continue; }
-    const fr = framing(det, v);
-    if (fr) { reset(); show('idle', fr, 'Look at the camera to clock in or out'); continue; }
-    const p = pose(det.landmarks.positions); const now = Date.now();
-    if (!since) since = now;
-    track.push({ t: now, ...p }); track = track.filter((x) => now - x.t < 2000);
-    earAvg = earAvg == null ? p.ear : earAvg * 0.85 + p.ear * 0.15;
-    if (!closed && p.ear < earAvg * 0.72) closed = true; else if (closed && p.ear > earAvg * 0.9) { closed = false; blinks++; }
-    const moved = track.length > 3 && (Math.max(...track.map((x) => x.yaw)) - Math.min(...track.map((x) => x.yaw)) > 0.05 || Math.max(...track.map((x) => x.pitch)) - Math.min(...track.map((x) => x.pitch)) > 0.025);
-    const prog = Math.min(1, (now - since) / STEADY_MS);
-    show('scanning', 'Hold still…', blinks || moved ? 'Reading your face' : 'Blink once', prog);
-    if (prog < 1 || !(blinks || moved)) { if (now - since > 4000 && !(blinks || moved)) show('scanning', 'Blink or nod slightly', 'so we know it is really you', 1); continue; }
-
-    busy = true;
+  async function scan(direction) {
+    const my = ++run; const alive = () => my === run;
+    $('kCancel').hidden = false;
+    show('scanning', direction === 'in' ? 'Clock in · look at the camera' : 'Clock out · look at the camera', 'Starting camera…', 0);
     try {
+      [stream] = await Promise.all([navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false }), ready]);
+      if (!alive()) { stream.getTracks().forEach((t) => t.stop()); return; }
+      v.srcObject = stream; await v.play().catch(() => {});
+    } catch (e) {
+      if (!alive()) return;
+      show('bad', e?.name === 'NotAllowedError' ? 'Camera is blocked' : e?.name === 'NotReadableError' ? 'Camera is busy' : 'Face ID could not start', e?.name === 'NotAllowedError' ? 'Allow the camera for this site in the browser settings.' : e?.name === 'NotReadableError' ? 'Close other apps or tabs using the camera, then try again.' : 'Check the internet connection and try again.');
+      stopCam(); setTimeout(() => alive() && home(), 5000); return;
+    }
+    const opts = new f.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 });
+    let since = 0, track = [], blinks = 0, earAvg = null, closed = false; const t0 = Date.now();
+    while (alive()) {
+      await new Promise((r) => requestAnimationFrame(r));
+      if (Date.now() - t0 > 30000) { show('bad', 'Timed out', 'Tap the button and try again.'); stopCam(); setTimeout(() => alive() && home(), 3000); return; }
+      const det = await f.detectSingleFace(v, opts).withFaceLandmarks();
+      if (!alive()) return;
+      if (!det) { since = 0; track = []; show('scanning', direction === 'in' ? 'Clock in · look at the camera' : 'Clock out · look at the camera', 'No face yet', 0); continue; }
+      const fr = framing(det, v);
+      if (fr) { since = 0; show('scanning', fr, '', 0); continue; }
+      const p = pose(det.landmarks.positions); const now = Date.now();
+      if (!since) since = now;
+      track.push({ t: now, ...p }); track = track.filter((x) => now - x.t < 2000);
+      earAvg = earAvg == null ? p.ear : earAvg * 0.85 + p.ear * 0.15;
+      if (!closed && p.ear < earAvg * 0.72) closed = true; else if (closed && p.ear > earAvg * 0.9) { closed = false; blinks++; }
+      const moved = track.length > 3 && (Math.max(...track.map((x) => x.yaw)) - Math.min(...track.map((x) => x.yaw)) > 0.05 || Math.max(...track.map((x) => x.pitch)) - Math.min(...track.map((x) => x.pitch)) > 0.025);
+      const prog = Math.min(1, (now - since) / STEADY_MS);
+      show('scanning', 'Hold still…', blinks || moved ? 'Reading your face' : 'Blink once', prog);
+      if (prog < 1 || !(blinks || moved)) { if (now - since > 4000 && !(blinks || moved)) show('scanning', 'Blink or nod slightly', 'so we know it is really you', 1); continue; }
       const d = await f.detectSingleFace(v, opts).withFaceLandmarks().withFaceDescriptor();
-      if (!d) { busy = false; continue; }
-      const r = await call('/identify', { descriptor: Array.from(d.descriptor), liveness: { blinks, moved } });
+      if (!d || !alive()) continue;
+      const photo = snapshot();
+      show('scanning', 'Checking…', '', 1);
+      let r;
+      try { r = await call('/identify', { direction, photo, descriptor: Array.from(d.descriptor), liveness: { blinks, moved } }); } catch (e) {
+        show('bad', e.status === 401 ? 'Tablet link turned off' : 'No connection', e.status === 401 ? 'Ask HR to turn this tablet back on.' : 'Check the Wi-Fi and try again.');
+        stopCam(); setTimeout(() => alive() && home(), 4000); return;
+      }
+      if (!alive()) return;
+      if (r.status === 'retry') { show('scanning', r.message, '', 1); since = 0; await new Promise((x) => setTimeout(x, 800)); continue; }
+      stopCam(); $('kCancel').hidden = true;
       if (r.status === 'ok') {
         if (navigator.vibrate) navigator.vibrate(30);
-        if (r.result === 'clock_in') { show('ok', `Welcome, ${r.firstName}`, `${r.repeat ? 'Already clocked in' : 'Clocked in'} at ${fmtT(r.sessionStart || r.at)}${r.late ? ` · ${r.late} min late` : ''}`); timer(r.sessionStart || r.at); }
-        else { show('ok', `Goodbye, ${r.firstName}`, `${r.repeat ? 'Already clocked out' : 'Clocked out'} at ${fmtT(r.at)} · worked ${hm(r.workedMinutes || 0)}`); timer(null); }
-        pauseUntil = Date.now() + RESULT_MS;
-      } else if (r.status === 'retry') {
-        show('scanning', r.message, '', 1); pauseUntil = Date.now() + 900;
-      } else {
-        show('bad', 'Not recognised', r.message || 'Ask HR to set up your Face ID.'); pauseUntil = Date.now() + 3000;
-      }
-    } catch (e) {
-      show('bad', e.status === 401 ? 'Tablet link turned off' : 'No connection', e.status === 401 ? 'Ask HR for a new tablet link.' : 'Check the Wi-Fi and try again.');
-      pauseUntil = Date.now() + 4000;
+        if (r.result === 'clock_in') { show('ok', `Welcome, ${r.firstName}`, `Clocked in at ${fmtT(r.sessionStart || r.at)}${r.late ? ` · ${r.late} min late` : ''}`); timer(r.sessionStart || r.at); }
+        else show('ok', `Goodbye, ${r.firstName}`, `Clocked out at ${fmtT(r.at)} · worked ${hm(r.workedMinutes || 0)}`);
+      } else if (r.status === 'info') {
+        show('info', `Hi ${r.firstName}`, r.message); if (r.sessionStart) timer(r.sessionStart);
+      } else show('bad', 'Not recognised', r.message || 'Ask HR to set up your Face ID.');
+      setTimeout(() => alive() && home(), r.status === 'ok' ? RESULT_MS : 4000);
+      return;
     }
-    reset(); busy = false;
   }
 }
 main();

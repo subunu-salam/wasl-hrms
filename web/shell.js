@@ -107,6 +107,8 @@ export function profileMenuHtml(ctx) {
   const check = '<svg class="ck" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M5 12l5 5 9-10"/></svg>';
   return `<div class="pm-head"><span class="av">${ctx.esc(ctx.ini(ctx.me().name))}</span><div><b>${ctx.esc(ctx.me().name)}</b><small>${ctx.esc(ctx.me().email || '')}</small></div></div>
     ${ctx.isStaff() ? it('data-go="setup"', 'Settings', 'M4 6h9M17 6h3M4 12h3M11 12h9M4 18h11M19 18h1M15 4v4M9 10v4M17 16v4') : it('data-go="etag"', 'My ID tag', 'M4 6h16v12H4zM8 10h3M8 14h5M15 10h2v4h-2z')}
+    ${ctx.isStaff() ? '' : it('data-pm="face"', 'Face ID', 'M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2M9 9v1M15 9v1M12 9v4h-1M9.5 16a4 4 0 0 0 5 0')}
+    ${ctx.isStaff() ? '' : it('data-go="eclock"', 'My attendance', 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3 2')}
     ${it('data-pm="keys"', 'Keyboard shortcuts', 'M4 6h16v12H4zM8 10h.01M12 10h.01M16 10h.01M8 14h8')}
     <i class="pm-sep"></i>
     ${[['light', 'Light', 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 2v2M12 20v2M2 12h2M20 12h2'], ['dark', 'Dark', 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z'], ['auto', 'Match system', 'M7 3h10v18H7zM11 18h2']].map(([k, l, d]) => it(`data-mode="${k}"`, l, d, k === m ? check : '')).join('')}
@@ -210,6 +212,7 @@ export function wireShell(ctx) {
       if (b.dataset.mode) { store.set('wasl_mode', b.dataset.mode); applyTheme(); pm.innerHTML = profileMenuHtml(ctx); syncThemeUi(ctx); }
       if (b.dataset.theme) { store.set('wasl_theme', b.dataset.theme); applyTheme(); pm.innerHTML = profileMenuHtml(ctx); syncThemeUi(ctx); }
       if (b.dataset.pm === 'keys') { pm.hidden = true; shortcuts(ctx); }
+      if (b.dataset.pm === 'face') { pm.hidden = true; window.waslFace?.enroll().then((ok) => ok && ctx.toast('Face ID saved')); }
       if (b.dataset.pm === 'lang') ctx.toggleLang();
       if (b.dataset.pm === 'out') ctx.signOut();
     };
