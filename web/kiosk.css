@@ -54,3 +54,20 @@ body{display:grid;grid-template-rows:auto 1fr auto;min-height:100dvh}
 .kerr{color:var(--bad)!important;margin-top:12px!important}
 @media (max-width:640px){.kbar,.kfoot{padding:14px 16px}.kclock b{font-size:22px}}
 [hidden]{display:none!important}
+
+/* choose: two big buttons; camera only while scanning */
+.kchoose{display:none;gap:24px;width:min(820px,100%)}
+[data-state=home] .kchoose{display:grid;grid-template-columns:1fr 1fr}
+[data-state=home] .kcam{display:none}
+.kbig{font:inherit;color:#fff;border:0;border-radius:28px;padding:38px 24px;display:flex;flex-direction:column;align-items:center;gap:10px;cursor:pointer;transition:transform .15s,box-shadow .2s;min-height:min(42vh,320px);justify-content:center}
+.kbig svg{width:64px;height:64px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.kbig b{font-size:clamp(28px,4.4vmin,44px);letter-spacing:-.01em}
+.kbig small{font-size:16px;opacity:.85}
+.kbig.in{background:linear-gradient(160deg,#22c55e,#15803d);box-shadow:0 20px 50px -20px rgba(34,197,94,.6)}
+.kbig.out{background:linear-gradient(160deg,#ff6a2b,#c2410c);box-shadow:0 20px 50px -20px rgba(255,91,31,.6)}
+.kbig:active{transform:scale(.97)}
+.kbig:focus-visible{outline:3px solid #fff;outline-offset:4px}
+.kcancel{margin-top:16px}
+[data-state=info] .arc{stroke:var(--warn);stroke-dasharray:100 0}
+[data-state=info] h1{color:var(--warn)}
+@media (max-width:640px){[data-state=home] .kchoose{grid-template-columns:1fr}.kbig{min-height:24vh;padding:24px}}

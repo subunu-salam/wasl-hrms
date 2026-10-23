@@ -1076,7 +1076,7 @@ Object.assign(views, {
     <div class="grid emp-top">
       <div id="clockSlot">${clockCardHtml(h.today, h.shift, h.site)}</div>
       <div class="panel"><h2>Quick actions</h2><div class="qa">
-        ${[['eleave', 'Apply for leave', ICONS.leave], ['epay', 'My payslips', ICONS.pay], ['ereq', 'Salary certificate', ICONS.requests], ['edocs', 'My documents', ICONS.docs], ['etag', 'My ID tag', ICONS.etag], ['eai', 'Ask HR assistant', ICONS.eai]]
+        ${[['eclock', 'My attendance', ICONS.eclock], ['eleave', 'Apply for leave', ICONS.leave], ['epay', 'My payslips', ICONS.pay], ['ereq', 'Salary certificate', ICONS.requests], ['edocs', 'My documents', ICONS.docs], ['etag', 'My ID tag', ICONS.etag], ['eai', 'Ask HR assistant', ICONS.eai]]
           .map(([go2, label, ic]) => `<button class="qa-btn" data-go="${go2}">${icon(ic, 22)}<span>${label}</span></button>`).join('')}</div></div>
     </div>
     <div class="grid g4" style="margin-top:16px">
@@ -1269,20 +1269,32 @@ async function newEmployeeSheet() {
       ${f('ne_basic', 'Basic salary (AED / month) *', inp('ne_basic', 'required inputmode="decimal" placeholder="4000"'))}
       ${f('ne_house', 'Housing (AED)', inp('ne_house', 'inputmode="decimal" placeholder="0"'))}
       ${f('ne_trans', 'Transport (AED)', inp('ne_trans', 'inputmode="decimal" placeholder="0"'))}
+      ${f('ne_email', 'Email (their login ID) *', inp('ne_email', 'type="email" required autocomplete="off" placeholder="name@company.com"'))}
+      ${f('ne_pw', 'Password', inp('ne_pw', 'type="text" minlength="8" autocomplete="new-password" placeholder="Leave blank to generate one"'))}
       ${f('ne_iban', 'IBAN (optional)', inp('ne_iban', 'placeholder="AE07 0331 2345 6789 0123 456"'), true)}
       <label class="nf full" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="ne_uae" style="width:auto"> <span>UAE National (counts toward Emiratisation)</span></label>
     </div>`, async (sheet) => {
     const v = (id) => sheet.querySelector('#' + id).value.trim();
-    const body = { fullName: v('ne_name'), employeeNo: v('ne_no'), establishmentId: v('ne_est'), jobTitle: v('ne_job'), department: v('ne_dept') || undefined, nationality: v('ne_nat'), joinDate: v('ne_join'), contractType: v('ne_ct'), basic: v('ne_basic'), housing: v('ne_house') || 0, transport: v('ne_trans') || 0, isUaeNational: sheet.querySelector('#ne_uae').checked };
+    const body = { email: v('ne_email').toLowerCase(), fullName: v('ne_name'), employeeNo: v('ne_no'), establishmentId: v('ne_est'), jobTitle: v('ne_job'), department: v('ne_dept') || undefined, nationality: v('ne_nat'), joinDate: v('ne_join'), contractType: v('ne_ct'), basic: v('ne_basic'), housing: v('ne_house') || 0, transport: v('ne_trans') || 0, isUaeNational: sheet.querySelector('#ne_uae').checked };
     if (v('ne_iban')) body.iban = v('ne_iban').replace(/\s+/g, '').toUpperCase();
     const emp = await api('/employees', { method: 'POST', body });
-    toast(`${emp.fullName || body.fullName} added`);
-    if (window.waslFace?.hrEnroll && confirmFace(emp)) return;
+    let login = null, loginErr = '';
+    try { login = await api(`/employees/${emp._id}/login`, { method: 'POST', body: { action: 'create', email: body.email, ...(v('ne_pw') ? { password: v('ne_pw') } : {}) } }); } catch (e) { loginErr = e.message; }
+    credentialsSheet(emp.fullName || body.fullName, login, loginErr);
     if (cur === 'emp') views.emp().catch(fail);
   }, 'Add employee');
   sh.querySelector('#ne_uae').onchange = (e) => { if (e.target.checked) sh.querySelector('#ne_nat').value = 'United Arab Emirates'; };
 }
 window.waslNewEmployee = () => newEmployeeSheet().catch(fail);
+// Show the new login once so HR can share it (no email integration yet).
+function credentialsSheet(name, login, err) {
+  const site = `${location.origin}/employee`;
+  const msg = login ? `Hi ${name.split(' ')[0]}, your Wasl login:\nSite: ${site}\nUser ID: ${login.email}\nPassword: ${login.tempPassword}\nAfter signing in, set up Face ID (it takes 20 seconds) so you can clock in on the store tablet.` : '';
+  sheetForm(`${name} added`, login ? `<p style="margin:0 0 6px">Share these sign-in details with ${esc(name.split(' ')[0])} privately. They're shown only now; you can reset the password later from their profile.</p>
+    <dl class="kv"><div><dt>Sign-in page</dt><dd class="mono">${esc(site)}</dd></div><div><dt>User ID</dt><dd class="mono">${esc(login.email)}</dd></div><div><dt>Password</dt><dd class="mono">${esc(login.tempPassword)}</dd></div></dl>
+    <p style="margin:10px 0 0;color:var(--muted);font-size:13px">Next step for them: sign in and tap <b>Set up Face ID</b> on their own phone. Face ID shows as <b>Pending</b> in the employee list until they do.</p>`
+    : `<p>The employee was added, but their login wasn't created: ${esc(err || 'unknown error')}. Open their profile to create it.</p>`, async () => { if (msg) { try { await navigator.clipboard.writeText(msg); toast('Sign-in details copied'); } catch { /* ignore */ } } }, login ? 'Copy details' : 'Close');
+}
 // After adding someone, offer to enroll their face right away (for staff who clock in on the shared tablet).
 function confirmFace(emp) {
   const bar = document.createElement('div'); bar.className = 'sheet';
@@ -1294,7 +1306,9 @@ function confirmFace(emp) {
 }
 
 async function employeeDirectory() {
-  const list = await api(`/employees${currentEst()?._id ? `?establishmentId=${currentEst()._id}` : ''}`);
+  const [list, face] = await Promise.all([api(`/employees${currentEst()?._id ? `?establishmentId=${currentEst()._id}` : ''}`), has('hr_admin') ? api('/attendance/face').catch(() => null) : null]);
+  const faceOn = new Set((face?.profiles || []).filter((p) => p.active !== false).map((p) => String(p.employeeId?._id || p.employeeId)));
+  const facePill = (e) => (!face ? '' : faceOn.has(String(e._id)) ? pill('p-ok', 'Enrolled') : pill('p-warn', 'Pending'));
   const depts = [...new Set(list.map((e) => e.department).filter(Boolean))].sort();
   const saved = (() => { try { return JSON.parse(localStorage.getItem('wasl_empfilter') || '{}'); } catch { return {}; } })();
   V(`<div class="eyebrow">${esc(currentEst()?.name || '')}</div><h1>${t('emp')}</h1>
@@ -1306,7 +1320,7 @@ async function employeeDirectory() {
     <span id="empCount" class="lbl" style="margin-inline-start:auto"></span>
     ${has('hr_admin') ? `<button class="btn pri" id="newEmpBtn">${icon('M12 5v14M5 12h14', 16)}<span>New employee</span></button>` : ''}
   </div>
-  <div class="panel tw" style="padding-top:8px"><table class="clickable"><thead><tr><th>Employee</th><th>Role</th><th>Team</th><th>Nationality</th><th>Joined</th><th>Status</th><th>IBAN</th><th class="r">Basic (AED)</th></tr></thead><tbody id="empRows"></tbody></table><div class="pager" id="empPager"></div></div>`);
+  <div class="panel tw" style="padding-top:8px"><table class="clickable"><thead><tr><th>Employee</th><th>Role</th><th>Team</th><th>Nationality</th><th>Joined</th><th>Status</th><th>Face ID</th><th>IBAN</th><th class="r">Basic (AED)</th></tr></thead><tbody id="empRows"></tbody></table><div class="pager" id="empPager"></div></div>`);
   $('#newEmpBtn')?.addEventListener('click', () => newEmployeeSheet());
   const draw = () => {
     const q = $('#empQ').value.trim().toLowerCase(), dept = $('#empDept').value, st = $('#empStatus').value;
@@ -1319,8 +1333,8 @@ async function employeeDirectory() {
     $('#empPager').querySelectorAll('[data-dp]').forEach((b) => (b.onclick = () => { dirPage = Number(b.dataset.dp); draw(); }));
     $('#empRows').innerHTML = pageRows.map((e) => `<tr data-open="${e._id}" tabindex="0"><td><div style="display:flex;gap:10px;align-items:center"><span class="av">${esc(ini(e.fullName))}</span><div><b style="font-weight:500">${esc(L === 'ar' && e.fullNameAr ? e.fullNameAr : e.fullName)}</b><div class="mono" style="font-size:11px;color:var(--muted)">${esc(e.employeeNo)}</div></div></div></td>
       <td>${esc(e.jobTitle || '')}</td><td>${deptTag(e.department)}</td><td>${e.isUaeNational ? pill('p-g', 'UAE National') : esc(e.nationality || '')}</td><td class="mono">${fmtDate(e.joinDate)}</td>
-      <td>${pill(e.status === 'active' ? 'p-ok' : e.status === 'exited' ? 'p-bad' : 'p-warn', e.status)}</td>
-      <td>${e.ibanValid ? `<span class="mono">${esc(e.bank?.ibanMasked || '')}</span>` : pill('p-bad', 'Invalid')}</td><td class="r num">${AED(e.compensation?.basicFils || 0)}</td></tr>`).join('') || '<tr><td colspan="8" class="empty">No one matches. Try a different search.</td></tr>';
+      <td>${pill(e.status === 'active' ? 'p-ok' : e.status === 'exited' ? 'p-bad' : 'p-warn', e.status)}</td><td>${facePill(e)}</td>
+      <td>${e.ibanValid ? `<span class="mono">${esc(e.bank?.ibanMasked || '')}</span>` : pill('p-bad', 'Invalid')}</td><td class="r num">${AED(e.compensation?.basicFils || 0)}</td></tr>`).join('') || '<tr><td colspan="9" class="empty">No one matches. Try a different search.</td></tr>';
     translateTree($('#empRows'), L);
     document.querySelectorAll('[data-open]').forEach((tr) => { tr.onclick = () => openEmployee(tr.dataset.open); tr.onkeydown = (ev) => { if (ev.key === 'Enter') openEmployee(tr.dataset.open); }; });
   };
@@ -1371,8 +1385,18 @@ async function employeeProfile(id) {
       <div class="panel"><h2>Employee login</h2>${d.login ? `${kv([['Sign-in email', esc(d.login.email)], ['Status', d.login.active ? pill('p-ok', 'Active') : pill('p-bad', 'Disabled')], ['Last sign-in', val(d.login.lastLoginAt ? new Date(d.login.lastLoginAt).toLocaleString('en-GB') : 'Never')], ['Two-step sign-in', d.login.mfaEnabled ? 'On' : 'Off']])}
         ${admin ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn sm" data-login="reset">Reset password</button><button class="btn sm" data-login="${d.login.active ? 'disable' : 'enable'}">${d.login.active ? 'Disable login' : 'Enable login'}</button></div>` : ''}`
         : `<p style="margin:0 0 12px;color:var(--muted)">No login yet. Create one so ${esc(e.fullName.split(' ')[0])} can clock in, apply for leave and see payslips.</p>${admin ? `<button class="btn pri sm" data-login="create">Create employee login</button>` : ''}`}
+        <div id="faceOut" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)"></div>
         <div id="loginOut"></div></div>
     </div>`);
+    // Face ID status for this employee (they enroll on their own phone; HR can reset)
+    if (admin) api('/attendance/face').then((fd) => {
+      const p = (fd.profiles || []).find((x) => String(x.employeeId?._id || x.employeeId) === String(e._id));
+      const out = body.querySelector('#faceOut'); if (!out) return;
+      out.innerHTML = `${kv([['Face ID', p ? pill('p-ok', 'Enrolled') : pill('p-warn', 'Pending')], ...(p ? [['Enrolled on', fmtDate(p.enrolledAt)], ['Last used', p.lastVerifiedAt ? new Date(p.lastVerifiedAt).toLocaleString('en-GB') : '—']] : [])])}
+        <p style="margin:8px 0 0;color:var(--muted);font-size:13px">${p ? 'Reset if their face scan stops matching (they rescan from their own login).' : `${esc(e.fullName.split(' ')[0])} sets this up after signing in: My profile → Face ID, or the prompt on their home screen.`}</p>
+        ${p ? '<button class="btn sm" id="faceReset" style="margin-top:8px">Reset Face ID</button>' : ''}`;
+      const rb = out.querySelector('#faceReset'); if (rb) rb.onclick = async () => { await api(`/attendance/face/${e._id}`, { method: 'DELETE' }); toast('Face ID reset. They will rescan from their login.'); views.emp().catch(fail); };
+    }).catch(() => {});
     body.querySelectorAll('[data-login]').forEach((b) => (b.onclick = async () => {
       try {
         const r = await api(`/employees/${id}/login`, { method: 'POST', body: { action: b.dataset.login, email: e.email || undefined } });
@@ -1763,7 +1787,7 @@ views.ehome = async () => {
 };
 Object.assign(views, { away: () => awayView(false), eaway: () => awayView(true), ats: atsView, reflect: reflectView, ereflect: ereflectView });
 
-const SH = { mods: () => mods(), get cur() { return cur; }, lang: () => L, esc, icon, ICONS, t, ini, me: () => me, api, has, go, sheetForm, isStaff: () => isStaffUser(), estName: () => currentEst()?.name, signOut, toggleLang: () => { L = L === 'en' ? 'ar' : 'en'; localStorage.setItem('wasl_lang', L); shell(); }, rerender: () => shell() };
+const SH = { toast, mods: () => mods(), get cur() { return cur; }, lang: () => L, esc, icon, ICONS, t, ini, me: () => me, api, has, go, sheetForm, isStaff: () => isStaffUser(), estName: () => currentEst()?.name, signOut, toggleLang: () => { L = L === 'en' ? 'ar' : 'en'; localStorage.setItem('wasl_lang', L); shell(); }, rerender: () => shell() };
 const tenantId = () => { try { return JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).tid; } catch { return ''; } };
 window.waslFace?.init({ api, toast, esc });
 installExt({ views, STAFF_MODS, EMP_MODS, ICONS, T, api, V, esc, AED, toast, fail, has, pill, sheetForm, icon, fileToBase64, openFile, kv, currentEst, ests: () => ESTS, tenantId, translate: (el) => translateTree(el, L) });

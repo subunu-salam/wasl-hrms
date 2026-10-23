@@ -96,7 +96,7 @@ r.patch('/employees/:id', requireRole('hr_admin'), ah(async (req, res) => {
 
 // Employee login account: create, reset password, enable/disable
 r.post('/employees/:id/login', requireRole('hr_admin'), ah(async (req, res) => {
-  const b = z.object({ action: z.enum(['create', 'reset', 'disable', 'enable']), email: z.string().email().optional() }).parse(req.body);
+  const b = z.object({ action: z.enum(['create', 'reset', 'disable', 'enable']), email: z.string().email().optional(), password: z.string().min(8, 'Password must be at least 8 characters.').max(72).optional() }).parse(req.body);
   const emp = await Employee.findById(req.params.id).lean();
   if (!emp) return res.status(404).json({ error: 'Employee not found' });
   const tempPassword = () => `Wasl-${randomBytes(4).toString('hex')}`;
@@ -106,7 +106,7 @@ r.post('/employees/:id/login', requireRole('hr_admin'), ah(async (req, res) => {
     const email = (b.email || emp.email || '').toLowerCase();
     if (!email) return res.status(400).json({ error: 'Add an email for this employee first.' });
     if (await runAsSystem(() => User.exists({ email }))) return res.status(409).json({ error: 'That email is already used by another login.' });
-    const pw = tempPassword();
+    const pw = b.password || tempPassword(); // HR may set it, otherwise a temporary one is generated
     await User.create({ email, name: emp.fullName, passwordHash: await bcrypt.hash(pw, 10), roles: ['employee'], employeeId: emp._id });
     if (!emp.email) await Employee.updateOne({ _id: emp._id }, { $set: { email } });
     await audit(req, 'employee.login.create', 'Employee', emp._id, null, { email });
@@ -114,7 +114,7 @@ r.post('/employees/:id/login', requireRole('hr_admin'), ah(async (req, res) => {
   }
   if (!user) return res.status(404).json({ error: 'This employee has no login yet.' });
   if (b.action === 'reset') {
-    const pw = tempPassword();
+    const pw = b.password || tempPassword();
     user.passwordHash = await bcrypt.hash(pw, 10); await runAsSystem(() => user.save());
     await audit(req, 'employee.login.reset', 'Employee', emp._id);
     return res.json({ email: user.email, tempPassword: pw, message: 'Password reset.' });

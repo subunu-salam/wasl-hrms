@@ -73,7 +73,7 @@ r.get('/employees', ah(async (req, res) => {
 }));
 
 const empInput = z.object({
-  establishmentId: z.string(), employeeNo: z.string(), fullName: z.string().min(2), fullNameAr: z.string().optional(),
+  establishmentId: z.string(), employeeNo: z.string(), fullName: z.string().min(2), fullNameAr: z.string().optional(), email: z.string().email().optional(), phone: z.string().max(30).optional(),
   nationality: z.string(), isUaeNational: z.boolean().default(false), jobTitle: z.string(), department: z.string().optional(),
   mohreSkillLevel: z.number().int().min(1).max(9).optional(), joinDate: z.string(),
   contractType: z.enum(['full-time', 'part-time', 'temporary', 'flexible']).default('full-time'),

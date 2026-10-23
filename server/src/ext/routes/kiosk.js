@@ -17,7 +17,7 @@ import { z, fail } from './_util.js';
 
 const r = Router();
 const ah = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-r.use(express.json({ limit: '100kb' }));
+r.use(express.json({ limit: '600kb' })); // descriptor + a small clock-in photo
 r.use(rateLimit({ windowMs: 60 * 1000, max: 90, standardHeaders: true, legacyHeaders: false, message: { error: 'Too many scans. Wait a moment.' } }));
 const same = (a, b) => createHash('sha256').update(String(a)).digest().equals(createHash('sha256').update(String(b)).digest());
 const REPEAT_MS = 2 * 60 * 1000; // ignore a second scan within 2 minutes of the last punch (people often look twice)
@@ -44,7 +44,7 @@ r.get('/hello', ah(async (req, res) => {
 
 r.post('/identify', ah(async (req, res) => {
   const d = await kioskDevice(req);
-  const b = z.object({ descriptor: z.array(z.number()).length(128), liveness: z.object({ blinks: z.number().int().min(0).max(50).default(0), moved: z.boolean().default(false) }).default({}) }).parse(req.body);
+  const b = z.object({ direction: z.enum(['in', 'out', 'auto']).default('auto'), photo: z.string().regex(/^data:image\/jpeg;base64,/).max(450_000).optional(), descriptor: z.array(z.number()).length(128), liveness: z.object({ blinks: z.number().int().min(0).max(50).default(0), moved: z.boolean().default(false) }).default({}) }).parse(req.body);
   if (!isDescriptor(b.descriptor)) throw fail(400, 'Invalid face scan.');
   const out = await inTenant(d, async () => {
     const f = await FeatureSettings.findOne().lean();
@@ -62,15 +62,19 @@ r.post('/identify', ah(async (req, res) => {
     const last = await Attendance.findOne({ employeeId: emp._id }).sort({ 'clockIn.at': -1 }).lean();
     const lastPunch = last ? (last.clockOut?.at || last.clockIn?.at) : null;
     const first = emp.fullName.split(' ')[0];
-    if (lastPunch && now - new Date(lastPunch) < REPEAT_MS) {
+    if (b.direction === 'auto' && lastPunch && now - new Date(lastPunch) < REPEAT_MS) {
       return { status: 'ok', result: last.clockOut?.at ? 'clock_out' : 'clock_in', repeat: true, name: emp.fullName, firstName: first, at: lastPunch, sessionStart: last.clockIn?.at, workedMinutes: last.minutesWorked || 0, confidence: m.confidence };
     }
-    const result = await applyDevicePunch({ device: d, employeeNo: emp.employeeNo, at: now, direction: 'auto', verifyMode: 'face' });
+    const result = await applyDevicePunch({ device: d, employeeNo: emp.employeeNo, at: now, direction: b.direction, verifyMode: 'face' });
     const rec = await Attendance.findOne({ employeeId: emp._id }).sort({ 'clockIn.at': -1 }).lean();
     await FaceVerification.create({ employeeId: emp._id, direction: result === 'clock_out' ? 'out' : 'in', passed: true, score: m.score, confidence: m.confidence, live, liveness: b.liveness, device: `kiosk:${d.name}`, usedAt: now, attendanceDate: localParts(now).date });
     await FaceProfile.updateOne({ employeeId: emp._id }, { $set: { lastVerifiedAt: now }, $inc: { verifications: 1 } });
     await AttendanceDevice.updateOne({ _id: d._id }, { $set: { lastSeenAt: now, lastError: null } });
+    if (result === 'already_in') return { status: 'info', name: emp.fullName, firstName: first, message: `You are already clocked in since ${new Date(rec?.clockIn?.at || now).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Dubai' })}. Press Clock out when you leave.`, sessionStart: rec?.clockIn?.at };
+    if (result === 'no_open_session') return { status: 'info', name: emp.fullName, firstName: first, message: 'You are not clocked in yet. Press Clock in first.' };
     if (!['clock_in', 'clock_out'].includes(result)) return { status: 'unknown', message: 'Could not record the punch. Please see HR.', result };
+    // the tablet's photo goes on the attendance record, like the selfie on a phone clock-in
+    if (b.photo && rec && (result === 'clock_in' || !rec.hasPhoto)) await Attendance.updateOne({ _id: rec._id }, { $set: { photo: b.photo, hasPhoto: true } });
     return { status: 'ok', result, name: emp.fullName, firstName: first, at: now, sessionStart: rec?.clockIn?.at, workedMinutes: rec?.minutesWorked || 0, late: result === 'clock_in' ? rec?.lateMinutes || 0 : 0, confidence: m.confidence };
   });
   res.json(out);
