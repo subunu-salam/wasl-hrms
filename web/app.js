@@ -994,20 +994,36 @@ function haversine(a, b) {
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 // Downscale to a small JPEG and stamp time + GPS on it (keeps uploads ~40–80 KB, nothing is cropped)
-function toJpeg(source, w, h, gps) {
+// Geo-tagged photo: a strip along the bottom with what/who, date-time (GST), coordinates and distance from the site.
+function toJpeg(source, w, h, gps, title) {
   const scale = Math.min(1, 640 / Math.max(w, h));
   const c = document.createElement('canvas'); c.width = Math.round(w * scale); c.height = Math.round(h * scale);
   const g = c.getContext('2d');
   g.drawImage(source, 0, 0, c.width, c.height); // raw frames are un-mirrored; only the live preview is mirrored
-  const lines = [`${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Dubai', dateStyle: 'medium', timeStyle: 'medium' })} GST`];
-  lines.push(gps?.lat != null ? `${gps.lat.toFixed(5)}, ${gps.lng.toFixed(5)} ±${gps.accuracyM} m` : `Location: ${gps?.gpsError || 'not available'}`);
-  const fs = Math.max(13, Math.round(c.width / 34)), pad = Math.round(fs * 0.7), lh = Math.round(fs * 1.35), boxH = lines.length * lh + pad * 1.5;
-  g.fillStyle = 'rgba(0,0,0,.6)'; g.fillRect(0, c.height - boxH, c.width, boxH);
-  g.fillStyle = '#fff'; g.font = `${fs}px system-ui, sans-serif`; g.textBaseline = 'top';
-  lines.forEach((t, i) => g.fillText(t, pad, c.height - boxH + pad * 0.75 + i * lh));
-  return c.toDataURL('image/jpeg', 0.75);
+  stampGeo(g, c.width, c.height, gps, title);
+  return c.toDataURL('image/jpeg', 0.78);
 }
-const fromImage = (im, gps) => toJpeg(im, im.naturalWidth, im.naturalHeight, gps);
+function stampGeo(g, W, H, gps, title) {
+  const when = `${new Date().toLocaleString('en-GB', { timeZone: 'Asia/Dubai', weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })} GST`;
+  let place = `Location: ${gps?.gpsError || 'not available'}`;
+  if (gps?.lat != null) {
+    const d = SITE?.lat != null ? haversine(gps, SITE) : null;
+    place = `${gps.lat.toFixed(5)}°, ${gps.lng.toFixed(5)}° ±${gps.accuracyM} m${d != null ? ` · ${d <= (SITE.radiusM || 300) + Math.min(gps.accuracyM || 0, 150) ? `At ${SITE.label || 'site'}` : `${kmOrM(d)} from ${SITE.label || 'site'}`}` : ''}`;
+  }
+  const lines = [title || `Clock in · ${me?.name || ''}`, when, place].filter(Boolean);
+  const fs = Math.max(12, Math.round(W / 36)), pad = Math.round(fs * 0.75), lh = Math.round(fs * 1.4), boxH = lines.length * lh + pad * 1.4;
+  const grad = g.createLinearGradient(0, H - boxH - fs, 0, H); grad.addColorStop(0, 'rgba(0,0,0,0)'); grad.addColorStop(0.25, 'rgba(0,0,0,.62)'); grad.addColorStop(1, 'rgba(0,0,0,.78)');
+  g.fillStyle = grad; g.fillRect(0, H - boxH - fs, W, boxH + fs);
+  g.textBaseline = 'top';
+  // map pin
+  const px = pad, py = H - boxH + pad * 0.7 + lh * 2 + fs * 0.1;
+  lines.forEach((t, i) => { g.font = `${i === 0 ? '600 ' : ''}${fs}px system-ui, sans-serif`; g.fillStyle = i === 0 ? '#fff' : 'rgba(255,255,255,.88)'; g.fillText(t, pad + (i === 2 ? fs * 0.95 : 0), H - boxH + pad * 0.7 + i * lh); });
+  g.fillStyle = gps?.lat != null ? '#ff5b1f' : '#9ca3af'; g.beginPath(); g.arc(px + fs * 0.35, py + fs * 0.32, fs * 0.3, Math.PI, 0); g.lineTo(px + fs * 0.35, py + fs * 0.95); g.closePath(); g.fill();
+  g.fillStyle = '#fff'; g.beginPath(); g.arc(px + fs * 0.35, py + fs * 0.32, fs * 0.11, 0, Math.PI * 2); g.fill();
+}
+// Re-stamp an existing photo (e.g. the Face ID frame) once the location is known.
+const stampPhoto = (dataUrl, gps, title) => new Promise((res) => { const im = new Image(); im.onload = () => res(toJpeg(im, im.naturalWidth, im.naturalHeight, gps, title)); im.onerror = () => res(dataUrl); im.src = dataUrl; });
+const fromImage = (im, gps) => toJpeg(im, im.naturalWidth, im.naturalHeight, gps, `Clock in · ${me?.name || ''}`);
 
 // Camera sheet with a live location readout. Resolves { photo, gps } or null.
 function captureSelfie() {
@@ -1063,7 +1079,7 @@ function captureSelfie() {
         msg.textContent = 'Camera access is blocked. Use “Use phone camera” instead, or allow camera access in your browser settings.';
       }
     })();
-    sheet.querySelector('#camShot').onclick = () => show(toJpeg(v, v.videoWidth || 640, v.videoHeight || 480, gps));
+    sheet.querySelector('#camShot').onclick = () => show(toJpeg(v, v.videoWidth || 640, v.videoHeight || 480, gps, `Clock in · ${me?.name || ''}`));
     sheet.querySelector('#camRetake').onclick = () => { img.hidden = true; v.hidden = false; sheet.querySelector('.cam-ring').hidden = false; shot = null; sheet.querySelector('#camShot').hidden = false; sheet.querySelector('#camRetake').hidden = true; sheet.querySelector('#camUse').hidden = true; };
     sheet.querySelector('#camUse').onclick = () => close({ photo: shot, gps: gps || { gpsError: 'Location was still loading' } });
     sheet.querySelector('#camCancel').onclick = () => close(null);
@@ -1079,7 +1095,7 @@ async function doClockIn(after) {
   const face = window.waslFace ? await window.waslFace.gate('in') : undefined;
   if (face === null) return;
   let photo, gps;
-  if (face) { toast('Face verified · getting your location…'); photo = face.photo; gps = await getLocation(); } else {
+  if (face) { toast('Face verified · getting your location…'); gps = await getLocation(); photo = await stampPhoto(face.photo, gps, `Clock in · ${me?.name || ''} · Face ID ${face.confidence ?? ''}%`); } else {
     const got = await captureSelfie();
     if (!got) return;
     ({ photo, gps } = got);

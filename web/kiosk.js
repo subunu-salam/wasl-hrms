@@ -85,10 +85,23 @@ async function main() {
   $('kIn').onclick = () => scan('in');
   $('kOut').onclick = () => scan('out');
 
-  function snapshot() {
-    const w = Math.min(360, v.videoWidth || 360), h = Math.round(((v.videoHeight || 270) / (v.videoWidth || 360)) * w);
-    const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(v, 0, 0, w, h);
-    return c.toDataURL('image/jpeg', 0.72);
+  // Geo-tagged photo: what/where, date-time (GST) and the tablet's coordinates stamped along the bottom.
+  function snapshot(direction) {
+    const w = Math.min(480, v.videoWidth || 480), h = Math.round(((v.videoHeight || 360) / (v.videoWidth || 480)) * w);
+    const c = document.createElement('canvas'); c.width = w; c.height = h; const g = c.getContext('2d'); g.drawImage(v, 0, 0, w, h);
+    const lines = [
+      `${direction === 'out' ? 'Clock out' : 'Clock in'} · ${[info.company, (() => { const n = info.device || info.site || ''; return /tablet/i.test(n) ? n : `${n} tablet`.trim(); })()].filter(Boolean).join(' · ')}`,
+      `${new Date().toLocaleString('en-GB', { timeZone: TZ, weekday: 'short', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })} GST`,
+      gps ? `${gps.lat.toFixed(5)}°, ${gps.lng.toFixed(5)}° ±${gps.accuracyM} m` : 'Location: not available',
+    ];
+    const fs = Math.max(11, Math.round(w / 34)), pad = Math.round(fs * 0.75), lh = Math.round(fs * 1.4), boxH = lines.length * lh + pad * 1.4;
+    const grad = g.createLinearGradient(0, h - boxH - fs, 0, h); grad.addColorStop(0, 'rgba(0,0,0,0)'); grad.addColorStop(0.25, 'rgba(0,0,0,.62)'); grad.addColorStop(1, 'rgba(0,0,0,.78)');
+    g.fillStyle = grad; g.fillRect(0, h - boxH - fs, w, boxH + fs); g.textBaseline = 'top';
+    lines.forEach((t, i) => { g.font = `${i === 0 ? '600 ' : ''}${fs}px system-ui, sans-serif`; g.fillStyle = i === 0 ? '#fff' : 'rgba(255,255,255,.88)'; g.fillText(t, pad + (i === 2 ? fs * 0.95 : 0), h - boxH + pad * 0.7 + i * lh); });
+    const px = pad, py = h - boxH + pad * 0.7 + lh * 2 + fs * 0.1;
+    g.fillStyle = gps ? '#ff5b1f' : '#9ca3af'; g.beginPath(); g.arc(px + fs * 0.35, py + fs * 0.32, fs * 0.3, Math.PI, 0); g.lineTo(px + fs * 0.35, py + fs * 0.95); g.closePath(); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.arc(px + fs * 0.35, py + fs * 0.32, fs * 0.11, 0, Math.PI * 2); g.fill();
+    return c.toDataURL('image/jpeg', 0.75);
   }
 
   async function scan(direction) {
@@ -125,7 +138,7 @@ async function main() {
       if (prog < 1 || !(blinks || moved)) { if (now - since > 4000 && !(blinks || moved)) show('scanning', 'Blink or nod slightly', 'so we know it is really you', 1); continue; }
       const d = await f.detectSingleFace(v, opts).withFaceLandmarks().withFaceDescriptor();
       if (!d || !alive()) continue;
-      const photo = snapshot();
+      const photo = snapshot(direction);
       show('scanning', 'Checking…', '', 1);
       let r;
       try { r = await call('/identify', { direction, photo, ...(gps ? { gps } : {}), descriptor: Array.from(d.descriptor), liveness: { blinks, moved } }); } catch (e) {
