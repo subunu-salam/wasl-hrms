@@ -3,6 +3,7 @@
 services:
   mongo:
     image: mongo:7.0
+    profiles: ["local-db"]  # added by DevX Control: start it only with --profile local-db
     restart: unless-stopped
     command: ["--replSet", "rs0", "--bind_ip_all"]
     volumes: [mongo_data:/data/db]
