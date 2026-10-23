@@ -54,6 +54,69 @@ const has = (...r) => me?.roles?.some((x) => r.includes(x) || x === 'owner');
 
 // ---------------- Login ----------------
 const EMP_ENTRY = /^\/employee\/?$/.test(location.pathname);
+// ---------------- Self-service password (first time / forgot) ----------------
+function accountSheet(prefill = '') {
+  const sh = document.createElement('div'); sh.className = 'sheet';
+  sh.innerHTML = `<div class="sheet-card panel acct" role="dialog" aria-modal="true" aria-label="Set your password"><div style="display:flex;justify-content:space-between;align-items:center"><h2 style="margin:0" id="acH">Set your password</h2><button class="btn sm" type="button" data-x>✕</button></div><div id="acB"></div><div class="err" id="acE"></div></div>`;
+  document.body.appendChild(sh);
+  const B = sh.querySelector('#acB'), E = sh.querySelector('#acE'), H = sh.querySelector('#acH');
+  const close = () => sh.remove();
+  sh.querySelector('[data-x]').onclick = close; sh.addEventListener('click', (e) => { if (e.target === sh) close(); });
+  const post = (path, body) => rawApi(`/auth/account/${path}`, { method: 'POST', body });
+  let email = prefill;
+  const pwFields = `<div class="field"><label class="lbl" for="acP1">New password</label><input id="acP1" type="password" autocomplete="new-password" minlength="8" required placeholder="At least 8 characters, with a number"></div>
+    <div class="field"><label class="lbl" for="acP2">Confirm password</label><input id="acP2" type="password" autocomplete="new-password" minlength="8" required></div>`;
+  const readPw = () => { const a = B.querySelector('#acP1').value, b = B.querySelector('#acP2').value; if (a.length < 8) throw new Error('Use at least 8 characters.'); if (a !== b) throw new Error("The two passwords don't match."); return a; };
+  const done = async (password) => {
+    H.textContent = 'Password saved';
+    B.innerHTML = '<p style="margin:0">Signing you in…</p>'; E.textContent = '';
+    $('#em').value = email; $('#pw').value = password; close(); $('#lf').requestSubmit();
+  };
+  const step1 = () => {
+    H.textContent = 'Set your password';
+    B.innerHTML = `<p class="sub" style="margin:0 0 10px">Enter the work email HR gave you.</p><div class="field"><label class="lbl" for="acEm">Work email</label><input id="acEm" type="email" autocomplete="username" required value="${esc(email)}"></div><button class="btn pri" id="acGo" style="margin-top:10px">Continue</button>`;
+    const go = async () => { E.textContent = ''; email = B.querySelector('#acEm').value.trim().toLowerCase(); if (!/^\S+@\S+\.\S+$/.test(email)) { E.textContent = 'Enter a valid email.'; return; } try { const r = await post('check', { email }); r.next === 'setup' ? codeStep(true) : forgotStep(r.faceReset); } catch (e) { E.textContent = e.message; } };
+    B.querySelector('#acGo').onclick = go; B.querySelector('#acEm').onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } };
+    B.querySelector('#acEm').focus();
+  };
+  const codeStep = (first) => {
+    H.textContent = first ? 'Welcome! Create your password' : 'Reset with a code from HR';
+    B.innerHTML = `<p class="sub" style="margin:0 0 10px">${first ? `Your account <b>${esc(email)}</b> is ready. Enter the setup code HR gave you, then choose your password.` : `Enter the reset code HR gave you for <b>${esc(email)}</b>.`}</p>
+      <div class="field"><label class="lbl" for="acC">${first ? 'Setup code' : 'Reset code'}</label><input id="acC" autocomplete="one-time-code" placeholder="ABCD-2345" style="text-transform:uppercase;letter-spacing:.12em" required></div>${pwFields}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn pri" id="acSave">Save password</button><button class="btn" id="acBack">Back</button></div>
+      <p class="note" style="margin:10px 0 0">No code? Ask HR. They can create one from your profile in seconds.</p>`;
+    B.querySelector('#acBack').onclick = step1;
+    B.querySelector('#acSave').onclick = async () => { E.textContent = ''; try { const pw = readPw(); await post('code', { email, code: B.querySelector('#acC').value, password: pw }); await done(pw); } catch (e) { E.textContent = e.message; } };
+    B.querySelector('#acC').focus();
+  };
+  const forgotStep = (face) => {
+    H.textContent = 'Forgot your password?';
+    B.innerHTML = `<p class="sub" style="margin:0 0 12px">Prove it's you for <b>${esc(email)}</b>, then choose a new password.</p>
+      <div class="acct-opts">${face ? `<button class="acct-opt" id="acFace"><b>Verify with Face ID</b><small>Look at the camera, about 5 seconds</small></button>` : ''}
+      <button class="acct-opt" id="acCode"><b>I have a code from HR</b><small>Ask HR to create a reset code from your profile</small></button></div>
+      <button class="btn" id="acBack" style="margin-top:12px">Back</button>`;
+    B.querySelector('#acBack').onclick = step1;
+    B.querySelector('#acCode').onclick = () => codeStep(false);
+    const fb = B.querySelector('#acFace'); if (fb) fb.onclick = () => faceStep();
+  };
+  const faceStep = () => {
+    H.textContent = 'Reset with Face ID';
+    B.innerHTML = `<p class="sub" style="margin:0 0 10px">Choose your new password, then scan your face to confirm it's you.</p>${pwFields}
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px"><button class="btn pri" id="acScan">Scan face &amp; save</button><button class="btn" id="acBack">Back</button></div>`;
+    B.querySelector('#acBack').onclick = () => forgotStep(true);
+    B.querySelector('#acScan').onclick = async () => {
+      E.textContent = '';
+      let pw; try { pw = readPw(); } catch (e) { E.textContent = e.message; return; }
+      sh.hidden = true;
+      const scan = await window.waslFace?.capture('Confirm it’s you', 'Look at the camera, then turn your head slightly.');
+      sh.hidden = false;
+      if (!scan) return;
+      try { await post('face', { email, password: pw, ...scan }); await done(pw); } catch (e) { E.textContent = e.message; }
+    };
+  };
+  step1();
+}
+
 function loginView() {
   const empMode = EMP_ENTRY;
   const perks = empMode
@@ -75,6 +138,7 @@ function loginView() {
         <div class="field"><label class="lbl" for="pw">Password</label><input id="pw" type="password" autocomplete="current-password" value="Demo@2026" required></div>
         <div class="err" id="le"></div>
         <button class="btn pri" type="submit">Sign in</button>
+        <button class="linkbtn" type="button" id="acctBtn">First time here or forgot password?</button>
         <p class="note" style="margin:0">${empMode
           ? 'Demo employees: ahmed@alnoor.demo (delivery driver), grace@alnoor.demo (sales). Password Demo@2026.'
           : 'Demo accounts: admin@alnoor.demo (HR + payroll maker), checker@alnoor.demo (payroll checker). Password Demo@2026.'}</p>
@@ -82,6 +146,7 @@ function loginView() {
     </form>
   </div>`;
   translateTree($('#root'), L);
+  $('#acctBtn').onclick = () => accountSheet($('#em').value.trim());
   $('#lf').onsubmit = async (e) => {
     e.preventDefault();
     try {
@@ -1270,7 +1335,7 @@ async function newEmployeeSheet() {
       ${f('ne_house', 'Housing (AED)', inp('ne_house', 'inputmode="decimal" placeholder="0"'))}
       ${f('ne_trans', 'Transport (AED)', inp('ne_trans', 'inputmode="decimal" placeholder="0"'))}
       ${f('ne_email', 'Email (their login ID) *', inp('ne_email', 'type="email" required autocomplete="off" placeholder="name@company.com"'))}
-      ${f('ne_pw', 'Password', inp('ne_pw', 'type="text" minlength="8" autocomplete="new-password" placeholder="Leave blank to generate one"'))}
+      ${f('ne_pw', 'Password (optional)', inp('ne_pw', 'type="text" minlength="8" autocomplete="new-password" placeholder="Blank = they choose their own"'))}
       ${f('ne_iban', 'IBAN (optional)', inp('ne_iban', 'placeholder="AE07 0331 2345 6789 0123 456"'), true)}
       <label class="nf full" style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" id="ne_uae" style="width:auto"> <span>UAE National (counts toward Emiratisation)</span></label>
     </div>`, async (sheet) => {
@@ -1289,9 +1354,13 @@ window.waslNewEmployee = () => newEmployeeSheet().catch(fail);
 // Show the new login once so HR can share it (no email integration yet).
 function credentialsSheet(name, login, err) {
   const site = `${location.origin}/employee`;
-  const msg = login ? `Hi ${name.split(' ')[0]}, your Wasl login:\nSite: ${site}\nUser ID: ${login.email}\nPassword: ${login.tempPassword}\nAfter signing in, set up Face ID (it takes 20 seconds) so you can clock in on the store tablet.` : '';
-  sheetForm(`${name} added`, login ? `<p style="margin:0 0 6px">Share these sign-in details with ${esc(name.split(' ')[0])} privately. They're shown only now; you can reset the password later from their profile.</p>
-    <dl class="kv"><div><dt>Sign-in page</dt><dd class="mono">${esc(site)}</dd></div><div><dt>User ID</dt><dd class="mono">${esc(login.email)}</dd></div><div><dt>Password</dt><dd class="mono">${esc(login.tempPassword)}</dd></div></dl>
+  const code = login?.setupCode;
+  const msg = !login ? '' : code
+    ? `Hi ${name.split(' ')[0]}, welcome to Wasl!\n1. Open ${site}\n2. Tap "First time here or forgot password?"\n3. Enter your user ID ${login.email} and setup code ${code}, then choose your own password (code valid ${login.expiresInDays} days).\n4. After signing in, set up Face ID (20 seconds) so you can clock in on the store tablet.`
+    : `Hi ${name.split(' ')[0]}, your Wasl login:\nSite: ${site}\nUser ID: ${login.email}\nPassword: ${login.tempPassword}\nAfter signing in, set up Face ID (it takes 20 seconds) so you can clock in on the store tablet.`;
+  sheetForm(`${name} added`, login ? `<p style="margin:0 0 6px">Share these details with ${esc(name.split(' ')[0])} privately. They're shown only now; you can create a new code later from their profile.</p>
+    <dl class="kv"><div><dt>Sign-in page</dt><dd class="mono">${esc(site)}</dd></div><div><dt>User ID</dt><dd class="mono">${esc(login.email)}</dd></div>${code ? `<div><dt>Setup code</dt><dd class="mono" style="font-size:18px;letter-spacing:.12em">${esc(code)}</dd></div>` : `<div><dt>Password</dt><dd class="mono">${esc(login.tempPassword)}</dd></div>`}</dl>
+    ${code ? `<p style="margin:10px 0 0;font-size:13px">They open the sign-in page, tap <b>First time here or forgot password?</b>, enter their email and this code, and choose their own password. The code works once and expires in ${login.expiresInDays} days.</p>` : ''}
     <p style="margin:10px 0 0;color:var(--muted);font-size:13px">Next step for them: sign in and tap <b>Set up Face ID</b> on their own phone. Face ID shows as <b>Pending</b> in the employee list until they do.</p>`
     : `<p>The employee was added, but their login wasn't created: ${esc(err || 'unknown error')}. Open their profile to create it.</p>`, async () => { if (msg) { try { await navigator.clipboard.writeText(msg); toast('Sign-in details copied'); } catch { /* ignore */ } } }, login ? 'Copy details' : 'Close');
 }
@@ -1382,8 +1451,8 @@ async function employeeProfile(id) {
     </div>
     <div class="grid g2" style="margin-top:16px">
       <div class="panel"><h2>Emergency contacts</h2>${(e.emergencyContacts || []).length ? `<div class="list">${e.emergencyContacts.map((x) => `<div class="row"><div class="grow">${esc(x.name)}<div style="font-size:12px;color:var(--muted)">${esc(x.relation || '')}</div></div><span class="mono">${esc(x.phone || '')}</span></div>`).join('')}</div>` : '<div class="empty">None added yet.</div>'}</div>
-      <div class="panel"><h2>Employee login</h2>${d.login ? `${kv([['Sign-in email', esc(d.login.email)], ['Status', d.login.active ? pill('p-ok', 'Active') : pill('p-bad', 'Disabled')], ['Last sign-in', val(d.login.lastLoginAt ? new Date(d.login.lastLoginAt).toLocaleString('en-GB') : 'Never')], ['Two-step sign-in', d.login.mfaEnabled ? 'On' : 'Off']])}
-        ${admin ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn sm" data-login="reset">Reset password</button><button class="btn sm" data-login="${d.login.active ? 'disable' : 'enable'}">${d.login.active ? 'Disable login' : 'Enable login'}</button></div>` : ''}`
+      <div class="panel"><h2>Employee login</h2>${d.login ? `${kv([['Sign-in email', esc(d.login.email)], ['Password', d.login.passwordSet === false ? pill('p-warn', 'Not set yet') : pill('p-ok', 'Set')], ['Status', d.login.active ? pill('p-ok', 'Active') : pill('p-bad', 'Disabled')], ['Last sign-in', val(d.login.lastLoginAt ? new Date(d.login.lastLoginAt).toLocaleString('en-GB') : 'Never')], ['Two-step sign-in', d.login.mfaEnabled ? 'On' : 'Off']])}
+        ${admin ? `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px"><button class="btn sm" data-login="code">Create reset code</button><button class="btn sm" data-login="reset">Reset password</button><button class="btn sm" data-login="${d.login.active ? 'disable' : 'enable'}">${d.login.active ? 'Disable login' : 'Enable login'}</button></div>` : ''}`
         : `<p style="margin:0 0 12px;color:var(--muted)">No login yet. Create one so ${esc(e.fullName.split(' ')[0])} can clock in, apply for leave and see payslips.</p>${admin ? `<button class="btn pri sm" data-login="create">Create employee login</button>` : ''}`}
         <div id="faceOut" style="margin-top:14px;padding-top:12px;border-top:1px solid var(--line)"></div>
         <div id="loginOut"></div></div>
@@ -1400,7 +1469,10 @@ async function employeeProfile(id) {
     body.querySelectorAll('[data-login]').forEach((b) => (b.onclick = async () => {
       try {
         const r = await api(`/employees/${id}/login`, { method: 'POST', body: { action: b.dataset.login, email: e.email || undefined } });
-        if (r.tempPassword) {
+        if (r.setupCode) {
+          $('#loginOut').innerHTML = `<div class="note" style="background:var(--accent-soft)"><b>${esc(r.message)}</b><br>User ID <span class="mono">${esc(r.email)}</span> · Code <span class="mono" style="font-size:16px;letter-spacing:.1em">${esc(r.setupCode)}</span> <button class="btn sm" id="cpPw">Copy</button></div>`;
+          $('#cpPw').onclick = async () => { try { await navigator.clipboard.writeText(`Sign in at ${location.origin}/employee\nUser ID: ${r.email}\nCode: ${r.setupCode}\nTap "First time here or forgot password?" to choose your password.`); toast('Copied'); } catch { toast('Select the code to copy it'); } };
+        } else if (r.tempPassword) {
           $('#loginOut').innerHTML = `<div class="note" style="background:var(--accent-soft)"><b>${esc(r.message)}</b><br>Email <span class="mono">${esc(r.email)}</span> · Temporary password <span class="mono" id="tmpPw">${esc(r.tempPassword)}</span> <button class="btn sm" id="cpPw">Copy</button><br>Employee sign-in: <span class="mono">${esc(location.origin)}/employee</span></div>`;
           $('#cpPw').onclick = async () => { try { await navigator.clipboard.writeText(`${r.email} / ${r.tempPassword}`); toast('Copied'); } catch { toast('Select the password to copy it'); } };
         } else { toast(r.message); reload(); }

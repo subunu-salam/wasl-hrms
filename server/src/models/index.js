@@ -41,6 +41,11 @@ const userSchema = new Schema({
   failedLogins: { type: Number, default: 0 },
   lockedUntil: Date,
   lastLoginAt: Date,
+  // self-service password: HR issues a one-time code; the employee sets their own password with it
+  passwordSet: { type: Boolean, default: true },
+  setupCodeHash: { type: String, select: false },
+  setupCodeExpires: Date,
+  setupCodeAttempts: { type: Number, default: 0 },
 }, { timestamps: true });
 userSchema.plugin(tenantPlugin);
 userSchema.index({ email: 1 }, { unique: true }); // email unique across platform for login

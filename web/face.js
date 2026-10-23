@@ -182,8 +182,8 @@ function camError(e) {
 }
 
 // ---------------------------------------------------------------- verification
-export async function verify(direction = 'in') {
-  const S = openSheet(direction === 'out' ? 'Clock out with Face ID' : 'Clock in with Face ID', 'Look at the camera, then turn your head slightly.');
+export async function verify(direction = 'in', opt = {}) {
+  const S = openSheet(opt.title || (direction === 'out' ? 'Clock out with Face ID' : 'Clock in with Face ID'), opt.sub || 'Look at the camera, then turn your head slightly.');
   S.sheet.querySelector('.fid-steps').remove();
   return new Promise((resolve) => {
     S.sheet.querySelector('[data-x=cancel]').onclick = () => { S.close(); resolve(null); };
@@ -212,6 +212,10 @@ export async function verify(direction = 'in') {
           const d = await detect(f, S.v, true); if (!d) continue;
           const photo = snapshot(S.v);
           S.say('Checking…');
+          if (opt.capture) { // just hand back the scan (e.g. password reset); the caller sends it
+            S.success(); S.say('Face captured', 'ok'); await sleep(600); S.close();
+            resolve({ descriptor: Array.from(d.descriptor), liveness: { blinks, turned: maxY - minY >= 0.18 } }); return;
+          }
           const r = await C.api('/me/face/verify', { method: 'POST', body: { descriptor: Array.from(d.descriptor), direction, liveness: { blinks, turned: maxY - minY >= 0.18 } } });
           if (!r.passed) throw Object.assign(new Error(`${r.reasons?.[0] || 'Face not recognised.'}`), { soft: true });
           S.success(); S.say(`Verified · ${r.confidence}% match`, 'ok');
@@ -308,4 +312,6 @@ async function hrEnroll(employeeId, name) {
 }
 window.waslKioskLink = () => { try { localStorage.setItem('wasl_tab_timeplus', 'face'); } catch { /* ignore */ } document.querySelector('[data-tab="face"]')?.click(); };
 
-window.waslFace = { init, reset, gate, enroll, hrEnroll, verify, mountCard };
+/** Scan a face without signing in (used to verify identity for a password reset). */
+const capture = (title, sub) => verify('in', { capture: true, title, sub });
+window.waslFace = { init, reset, capture, gate, enroll, hrEnroll, verify, mountCard };
