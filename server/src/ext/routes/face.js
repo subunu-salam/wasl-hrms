@@ -2,7 +2,7 @@
 // against it. Descriptors are computed in the browser; only the 128-number vectors are stored (no face photos).
 import { Router } from 'express';
 import { randomBytes } from 'node:crypto';
-import { encryptField } from '../../lib/fieldcrypt.js';
+import { encryptField, decryptField } from '../../lib/fieldcrypt.js';
 import { Employee, Notification } from '../../models/index.js';
 import { authenticate, requireRole, restrictEmployees, audit, ah } from '../../middleware/auth.js';
 import { localParts } from '../../lib/attendance.js';
@@ -96,7 +96,11 @@ r.post('/attendance/face/:employeeId/enroll', HR, ah(async (req, res) => {
 }));
 
 // Shared-tablet links ("Look & Verify" kiosk). The key travels in the URL fragment, so it never reaches server logs.
-r.get('/attendance/kiosks', HR, ah(async (req, res) => res.json(await AttendanceDevice.find({ vendor: 'face_kiosk' }).sort({ createdAt: -1 }).populate('establishmentId', 'name').lean())));
+// HR can always see/copy each tablet's link (it is stored encrypted and only returned to HR).
+r.get('/attendance/kiosks', HR, ah(async (req, res) => {
+  const list = await AttendanceDevice.find({ vendor: 'face_kiosk' }).select('+secretEnc').sort({ createdAt: -1 }).populate('establishmentId', 'name').lean();
+  res.json(list.map(({ secretEnc, ...d }) => { let url = null; try { url = `${publicBase(req)}/kiosk.html#k=${d.keyId}.${decryptField(secretEnc)}`; } catch { /* key rotated */ } return { ...d, url }; }));
+}));
 r.post('/attendance/kiosks', HR, ah(async (req, res) => {
   const b = z.object({ name: z.string().min(2).max(60), establishmentId: oid.optional() }).parse(req.body);
   const secret = randomBytes(24).toString('base64url'); const keyId = `kio_${randomBytes(6).toString('hex')}`;

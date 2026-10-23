@@ -41,3 +41,4 @@
 .nf input,.nf select{font:inherit;font-size:14px;color:var(--ink);background:var(--surface);border:1px solid var(--line-2);border-radius:10px;min-height:40px;padding:8px 12px}
 .nf input:focus,.nf select:focus{outline:2px solid var(--accent);outline-offset:1px}
 @media (max-width:560px){.nfgrid{grid-template-columns:1fr}}
+.klink{display:flex;align-items:center;gap:6px;flex-wrap:wrap}.klink code{font-size:12px;padding:4px 8px;border-radius:8px;background:var(--surface-2);color:var(--muted);max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
