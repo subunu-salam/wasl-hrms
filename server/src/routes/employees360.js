@@ -1,4 +1,5 @@
 // Employee 360: everything HR needs about one employee on a single page, plus editing and login management.
+import { newCode, hashCode, CODE_DAYS } from '../ext/lib/setupCode.js';
 import { Router } from 'express';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
@@ -29,7 +30,7 @@ r.get('/employees/:id/full', STAFF, ah(async (req, res) => {
     ServiceRequest.find({ employeeId: e._id }).sort({ createdAt: -1 }).limit(30).lean(),
     PayrollRun.find({ 'lines.employeeId': e._id }).select('period type status lines.$ establishmentId').sort({ period: -1 }).limit(24).lean(),
     Attendance.find({ employeeId: e._id, date: { $gte: `${month}-01`, $lte: `${month}-31` } }).sort({ date: -1, seq: 1 }).lean(),
-    runAsSystem(() => User.findOne({ tenantId: req.user.tenantId, employeeId: e._id }).select('email roles active lastLoginAt mfaEnabled').lean()).catch(() => null),
+    runAsSystem(() => User.findOne({ tenantId: req.user.tenantId, employeeId: e._id }).select('email roles active lastLoginAt mfaEnabled passwordSet').lean()).catch(() => null),
     AuditLog.find({ entityId: String(e._id) }).sort({ createdAt: -1 }).limit(25).lean(),
   ]);
   const { labourCardNo, bank, ...rest } = e;
@@ -42,7 +43,7 @@ r.get('/employees/:id/full', STAFF, ah(async (req, res) => {
     requests,
     payslips: runs.map((run) => ({ runId: run._id, period: run.period, type: run.type || 'regular', status: run.status, netFils: run.lines[0]?.netFils || 0, grossFils: run.lines[0]?.grossFils || 0 })),
     attendance: { month, records: att.map(({ photo, ...a }) => a), summary: summarize(att) },
-    login: login ? { email: login.email, roles: login.roles, active: login.active !== false, lastLoginAt: login.lastLoginAt, mfaEnabled: !!login.mfaEnabled } : null,
+    login: login ? { email: login.email, roles: login.roles, active: login.active !== false, lastLoginAt: login.lastLoginAt, mfaEnabled: !!login.mfaEnabled, passwordSet: login.passwordSet !== false } : null,
     tagToken: `WASL1.${req.user.tenantId}.${e._id}.${tagSig(req.user.tenantId, e._id)}`,
     activity: activity.map((a) => ({ action: a.action, actorType: a.actorType, at: a.createdAt, after: a.after })),
   });
@@ -96,7 +97,7 @@ r.patch('/employees/:id', requireRole('hr_admin'), ah(async (req, res) => {
 
 // Employee login account: create, reset password, enable/disable
 r.post('/employees/:id/login', requireRole('hr_admin'), ah(async (req, res) => {
-  const b = z.object({ action: z.enum(['create', 'reset', 'disable', 'enable']), email: z.string().email().optional(), password: z.string().min(8, 'Password must be at least 8 characters.').max(72).optional() }).parse(req.body);
+  const b = z.object({ action: z.enum(['create', 'reset', 'disable', 'enable', 'code']), email: z.string().email().optional(), password: z.string().min(8, 'Password must be at least 8 characters.').max(72).optional() }).parse(req.body);
   const emp = await Employee.findById(req.params.id).lean();
   if (!emp) return res.status(404).json({ error: 'Employee not found' });
   const tempPassword = () => `Wasl-${randomBytes(4).toString('hex')}`;
@@ -106,13 +107,26 @@ r.post('/employees/:id/login', requireRole('hr_admin'), ah(async (req, res) => {
     const email = (b.email || emp.email || '').toLowerCase();
     if (!email) return res.status(400).json({ error: 'Add an email for this employee first.' });
     if (await runAsSystem(() => User.exists({ email }))) return res.status(409).json({ error: 'That email is already used by another login.' });
-    const pw = b.password || tempPassword(); // HR may set it, otherwise a temporary one is generated
-    await User.create({ email, name: emp.fullName, passwordHash: await bcrypt.hash(pw, 10), roles: ['employee'], employeeId: emp._id });
     if (!emp.email) await Employee.updateOne({ _id: emp._id }, { $set: { email } });
-    await audit(req, 'employee.login.create', 'Employee', emp._id, null, { email });
-    return res.status(201).json({ email, tempPassword: pw, message: 'Login created. Share the temporary password privately; the employee should change it after signing in.' });
+    if (b.password) { // HR chose the password
+      await User.create({ email, name: emp.fullName, passwordHash: await bcrypt.hash(b.password, 10), roles: ['employee'], employeeId: emp._id });
+      await audit(req, 'employee.login.create', 'Employee', emp._id, null, { email });
+      return res.status(201).json({ email, tempPassword: b.password, message: 'Login created. Share the password privately.' });
+    }
+    // Default: the employee chooses their own password using a one-time setup code
+    const code = newCode();
+    await User.create({ email, name: emp.fullName, passwordHash: await bcrypt.hash(randomBytes(24).toString('hex'), 10), passwordSet: false, setupCodeHash: hashCode(code), setupCodeExpires: new Date(Date.now() + CODE_DAYS * 864e5), roles: ['employee'], employeeId: emp._id });
+    await audit(req, 'employee.login.create', 'Employee', emp._id, null, { email, via: 'setup_code' });
+    return res.status(201).json({ email, setupCode: code, expiresInDays: CODE_DAYS, message: `Login created. Give the employee their email and this setup code; they choose their own password on the sign-in page (valid ${CODE_DAYS} days).` });
   }
   if (!user) return res.status(404).json({ error: 'This employee has no login yet.' });
+  if (b.action === 'code') { // forgot password without Face ID: HR issues a fresh one-time code
+    const code = newCode();
+    user.setupCodeHash = hashCode(code); user.setupCodeExpires = new Date(Date.now() + CODE_DAYS * 864e5); user.setupCodeAttempts = 0;
+    await runAsSystem(() => user.save());
+    await audit(req, 'employee.login.code', 'Employee', emp._id);
+    return res.json({ email: user.email, setupCode: code, expiresInDays: CODE_DAYS, message: `Give ${emp.fullName.split(' ')[0]} this code. On the sign-in page they tap "First time here or forgot password?" and choose a new password.` });
+  }
   if (b.action === 'reset') {
     const pw = b.password || tempPassword();
     user.passwordHash = await bcrypt.hash(pw, 10); await runAsSystem(() => user.save());
