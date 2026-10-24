@@ -1,0 +1,171 @@
+/* Wasl HRMS — phone & tablet layer for both the HR workspace and the employee app.
+   Loaded last. ≤960px: grouped slide-out drawer replaces the pill nav. ≤720px: bottom tab bar,
+   tables reflow into cards, dialogs become bottom sheets, touch targets ≥44px. */
+
+/* ---------- drawer content (shared) ---------- */
+.sn-tools{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.sn-tool{all:unset;box-sizing:border-box;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:58px;border-radius:14px;background:var(--surface-2);border:1px solid var(--line);font-size:11.5px;font-weight:500;color:var(--soft);text-align:center}
+.sn-tool:active{transform:scale(.96)}
+.sn-tool:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sn-group{display:flex;flex-direction:column;gap:2px;padding-top:6px}
+.sn-group+.sn-group{margin-top:6px;border-top:1px solid var(--line);padding-top:12px}
+.sn-gl{display:flex;align-items:center;gap:8px;font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:0 12px 4px}
+.sn-nav .nav{min-height:52px;padding:6px 10px;gap:12px;white-space:normal;text-align:start}
+.sn-nav .nav-ic{flex:none;width:36px;height:36px;border-radius:11px;display:grid;place-items:center;background:var(--surface-2);border:1px solid var(--line);color:var(--ink)}
+.sn-nav .nav.on .nav-ic{background:color-mix(in srgb,var(--on-black) 14%,transparent);border-color:transparent;color:var(--on-black)}
+.sn-nav .nav-t{flex:1;min-width:0;display:flex;flex-direction:column;line-height:1.25}
+.sn-nav .nav-t b{font-size:14.5px;font-weight:550}
+.sn-nav .nav-t small{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sn-nav .nav.on .nav-t small{color:color-mix(in srgb,var(--on-black) 70%,transparent)}
+.sn-nav .nav svg{opacity:1}
+.sidenav{overscroll-behavior:contain}
+
+/* ---------- bottom tab bar (hidden by default) ---------- */
+.tabbar{display:none}
+
+/* ---------- desktop: drawer, scrim and tab bar never show ---------- */
+@media (min-width:961px){
+  .app .sidenav,.app .scrim,.app .menubtn,.app .page-title,.tabbar{display:none!important}
+}
+
+/* ---------- tablets & phones (both roles) ---------- */
+@media (max-width:960px){
+  .app .gnav,.app .phead,.app .rail{display:none!important}
+  .app .menubtn{display:grid}
+  .app .page-title{display:block;font-weight:600;font-size:16.5px;flex:1;min-width:0;padding-inline-start:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;letter-spacing:-.01em}
+  .app .topbar,.app main{margin-inline-start:0!important;margin-inline-end:0;width:100%}
+  .app .topbar{padding-top:calc(10px + env(safe-area-inset-top,0px));background:linear-gradient(var(--bg) 70%,transparent)}
+  .app .topbar-in{justify-content:flex-start;gap:10px;flex-wrap:nowrap;background:color-mix(in srgb,var(--surface) 92%,transparent);border:1px solid var(--line);border-radius:999px;padding:6px;box-shadow:var(--shadow)}
+  .app .topbar-in .brand{display:none}
+  .app .actions{margin-inline-start:auto;gap:6px}
+  .app .who-txt{display:none}
+  .app .avatarbtn{padding:2px}
+  .app .avatarbtn .av,.app .actions .iconbtn,.app .menubtn{width:44px;height:44px}
+  /* drawer: off-canvas panel */
+  .sidenav{position:fixed;z-index:60;top:0;bottom:0;inset-inline-start:0;width:min(340px,88vw);border-radius:0 24px 24px 0;transform:translateX(-105%);transition:transform .3s cubic-bezier(.2,.8,.2,1),visibility 0s .3s;visibility:hidden;padding:calc(14px + env(safe-area-inset-top,0px)) 12px calc(14px + env(safe-area-inset-bottom,0px));box-shadow:var(--shadow-hi);gap:12px}
+  [dir="rtl"] .sidenav{transform:translateX(105%);border-radius:24px 0 0 24px}
+  .navopen .sidenav{transform:none;visibility:visible;transition:transform .3s cubic-bezier(.2,.8,.2,1)}
+  .navopen{overflow:hidden}
+  .scrim{z-index:55}
+  .sn-close{display:grid}
+  /* popovers anchor to the viewport instead of a tiny button */
+  .app .popover{position:fixed;top:calc(74px + env(safe-area-inset-top,0px));inset-inline:12px;width:auto!important;max-height:calc(100dvh - 170px)}
+  /* command bar + entity selector stack cleanly */
+  .top{gap:8px}
+  .top .cmd{flex:1 1 100%;min-width:0}
+  .top #estSel{flex:1 1 100%;max-width:none!important;width:100%}
+  .chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-inline:-16px;padding-inline:16px}
+  .chips::-webkit-scrollbar{display:none}
+  .chip{flex:none;white-space:nowrap}
+  /* segmented controls and tabs scroll sideways instead of wrapping into ragged rows */
+  .tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;max-width:100%;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{flex:none;white-space:nowrap;min-height:36px;display:inline-flex;align-items:center}
+  .seg{max-width:100%;overflow-x:auto;scrollbar-width:none}
+  .seg::-webkit-scrollbar{display:none}
+  .seg button{flex:none;white-space:nowrap}
+}
+
+/* ---------- phones ---------- */
+@media (max-width:720px){
+  body{font-size:15px}
+  main{padding-top:10px!important;padding-bottom:calc(96px + env(safe-area-inset-bottom,0px))!important}
+  #view h1,h1{font-size:28px;line-height:1.15}
+  #view .sub,.sub{font-size:14px}
+  .panel{padding:16px;border-radius:20px}
+  .grid{gap:12px}
+
+  /* bottom tab bar */
+  .tabbar{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;position:fixed;z-index:40;left:10px;right:10px;bottom:calc(10px + env(safe-area-inset-bottom,0px));padding:6px;background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:saturate(1.5) blur(16px);-webkit-backdrop-filter:saturate(1.5) blur(16px);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow-hi)}
+  .tb{all:unset;box-sizing:border-box;position:relative;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-height:54px;padding:4px 2px;border-radius:16px;color:var(--muted);font-size:11px;font-weight:550;text-align:center;transition:background .2s,color .2s}
+  .tb span:not(.gbadge){max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .tb.on{background:var(--black);color:var(--on-black)}
+  .tb:active{transform:scale(.95)}
+  .tb:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .tb .gbadge{position:absolute;top:4px;inset-inline-end:calc(50% - 22px);min-width:17px;height:17px;font-size:10px;margin:0}
+  .navopen .tabbar{visibility:hidden}
+  .toast,.empmode .toast{bottom:calc(92px + env(safe-area-inset-bottom,0px))!important;max-width:calc(100vw - 32px);text-align:center;border-radius:16px}
+
+  /* inputs: 16px stops iOS zooming on focus; 44px touch targets */
+  input,select,textarea{font-size:16px!important}
+  .btn{min-height:44px;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+  .btn.sm{min-height:38px}
+  .cmd{padding:4px 4px 4px 14px}
+  .cmd .btn{min-height:40px}
+
+  /* toolbars: search full width, filters share a row, primary action full width */
+  .toolbar{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .toolbar>*{min-width:0}
+  .toolbar>.search,.toolbar>.btn.pri,.toolbar>.seg,.toolbar>.tabs{grid-column:1/-1}
+  .toolbar>select,.toolbar>.btn{width:100%}
+  .toolbar>.lbl{grid-column:1/-1;margin:0!important;order:9}
+  .toolbar>.sr{display:none}
+
+  .pager{display:flex;flex-wrap:wrap;justify-content:center;gap:6px;margin-top:12px}
+  .pg{min-width:40px;min-height:40px}
+
+  /* dialogs slide up from the bottom like native sheets */
+  .sheet{place-items:end stretch;padding:0;padding-top:env(safe-area-inset-top,0px)}
+  .sheet-card,.sheet-card.wide{width:100%!important;max-width:none;max-height:92dvh;border-radius:24px 24px 0 0!important;padding-bottom:calc(18px + env(safe-area-inset-bottom,0px))!important;animation:sheetUp .32s cubic-bezier(.2,.8,.2,1)}
+  .sheet-card::before{content:"";display:block;flex:none;width:40px;height:5px;border-radius:999px;background:var(--line-2);margin:-6px auto 4px}
+  .sheet-card .form,.sheet-card .form.three{grid-template-columns:1fr}
+  .cpal-wrap{place-items:start stretch;padding:calc(12px + env(safe-area-inset-top,0px)) 12px 0}
+  .cpal{width:100%}
+  .cpal-wrap .cpal::before{display:none}
+
+  /* employee profile header */
+  .profile-head{gap:14px}
+  .ph-main{flex-basis:calc(100% - 80px)}
+  .ph-actions{width:100%;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  .ph-actions .btn{width:100%}
+  .kv>div{flex-wrap:wrap;gap:4px 16px}
+  .kv dd{text-align:start;flex:1 1 100%}
+  .kv dt{flex:1 1 100%}
+
+  /* misc density */
+  .qa{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .row{flex-wrap:wrap}
+  .row .grow{flex-basis:60%}
+  .qtiles{gap:10px}
+  .xkpis{gap:10px}
+}
+/* ---------- tables become cards on tablets & phones ---------- */
+@media (max-width:860px){
+  /* tables -> cards. Each row becomes a card; each cell shows its column name. */
+  .tw:has(> table.rtable:not(.nostack)),.panel:has(> table.rtable:not(.nostack)){overflow:visible}
+  .panel.tw:has(> table.rtable:not(.nostack)){background:transparent;border:0;box-shadow:none;padding:0!important}
+  table.rtable:not(.nostack){display:block}
+  table.rtable:not(.nostack) thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+  table.rtable:not(.nostack) tbody{display:flex;flex-direction:column;gap:10px}
+  table.rtable:not(.nostack) tr{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px 14px;padding:14px 16px;background:var(--surface);border:1px solid var(--line);border-radius:18px;box-shadow:var(--shadow)}
+  table.rtable:not(.nostack) tbody tr:hover{background:var(--surface)}
+  table.rtable.clickable:not(.nostack) tbody tr:active{background:var(--surface-2)}
+  table.rtable:not(.nostack) td{display:flex;flex-direction:column;align-items:flex-start;gap:3px;padding:0;border:0;min-width:0;text-align:start!important;overflow-wrap:anywhere;font-size:14px}
+  table.rtable:not(.nostack) td::before{content:attr(data-label);font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--faint)}
+  table.rtable:not(.nostack) td:not([data-label])::before,table.rtable:not(.nostack) td[data-label=""]::before{display:none}
+  table.rtable:not(.nostack) td:first-child{grid-column:1/-1;padding-bottom:10px;border-bottom:1px solid var(--line)}
+  table.rtable:not(.nostack) td:first-child::before{display:none}
+  table.rtable:not(.nostack) td.rspan{grid-column:1/-1}
+  table.rtable:not(.nostack) td:empty{display:none}
+  table.rtable:not(.nostack) td .btn,table.rtable:not(.nostack) td button{max-width:100%}
+  table.rtable:not(.nostack) td:last-child:has(.btn,button){grid-column:1/-1;flex-direction:row;flex-wrap:wrap}
+  table.rtable:not(.nostack) td:last-child:has(.btn,button)::before{display:none}
+  table.rtable:not(.nostack) td:last-child:has(.btn,button) .btn{flex:1 1 auto}
+  /* very wide data grids stay as scrollable tables, with a hint of edge */
+  .tw:has(> table.nostack){-webkit-overflow-scrolling:touch}
+}
+@keyframes sheetUp{from{transform:translateY(40px);opacity:.4}}
+
+@media (max-width:380px){
+  .tb{font-size:10.5px}
+  .sn-tools{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .ph-actions{grid-template-columns:1fr}
+}
+
+/* landscape phones: keep the tab bar slim */
+@media (max-width:960px) and (max-height:500px){
+  .tabbar{display:none}
+  main{padding-bottom:40px!important}
+}
+
+@media (prefers-reduced-motion:reduce){.sidenav,.sheet-card{transition:none!important;animation:none!important}}
