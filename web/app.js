@@ -1,7 +1,7 @@
 // Wasl HRMS web client. Plain ES modules, no build step.
 import { translateTree } from './i18n.js';
 import { installExt, wireThemeButton, accentRgb } from './ext.js';
-import { navHtml, railHtml, pageHeadHtml, profileMenuHtml, wireShell } from './shell.js';
+import { navHtml, railHtml, pageHeadHtml, profileMenuHtml, wireShell, drawerHtml, tabbarHtml } from './shell.js';
 import './face.js';
 const API = '/api';
 const $ = (s, el = document) => el.querySelector(s);
@@ -252,7 +252,7 @@ function shell() {
     $('#root').innerHTML = `<div class="app ${isStaffUser() ? '' : 'emp'}">
   <header class="topbar"><div class="topbar-in">
     <a class="brand" href="${isStaffUser() ? '/' : '/employee'}" aria-label="Wasl home"><span class="mark">W</span><span class="brand-txt"><b>Wasl</b><span class="by">by <img src="devx-logo-dark.png" alt="DevX Technologies"></span></span></a>
-    ${isStaffUser() ? navHtml(SH) : `${navHtml(SH)}<button class="iconbtn menubtn" id="menuBtn" aria-label="Open menu" aria-controls="sidenav" aria-expanded="false">${icon('M4 7h16M4 12h16M4 17h16', 20)}</button><div class="page-title">${esc(t(cur))}</div>`}
+    ${navHtml(SH)}<button class="iconbtn menubtn" id="menuBtn" aria-label="Open menu" aria-controls="sidenav" aria-expanded="false">${icon('M4 7h16M4 12h16M4 17h16', 20)}</button><div class="page-title">${esc(t(cur))}</div>
     <div class="actions">
       <div style="position:relative"><button class="iconbtn" id="bell" aria-label="Notifications" title="Notifications">${icon('M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0', 18)}<span id="bellCt" class="ct" hidden></span></button>
         <div id="bellPanel" class="panel popover" hidden></div></div>
@@ -260,12 +260,7 @@ function shell() {
       <div style="position:relative"><button class="avatarbtn" id="whoBtn" aria-haspopup="true" aria-expanded="false"><span class="av">${esc(ini(me.name))}</span><span class="who-txt"><b>${esc(me.name)}</b><small>${esc(isStaffUser() ? me.roles.map((r) => r.replace('_', ' ')).join(', ') : 'Employee')}</small></span></button>
         <div id="whoMenu" class="panel popover pmenu" hidden style="width:264px">${profileMenuHtml(SH)}</div></div>
     </div></div></header>
-  ${isStaffUser() ? '' : `<aside class="sidenav" id="sidenav" aria-label="Main">
-    <div class="sn-head"><span class="mark">W</span><div><b>Wasl</b><small>Employee app</small></div><button class="iconbtn sn-close" id="snClose" aria-label="Close menu">${icon('M6 6l12 12M18 6L6 18', 18)}</button></div>
-    <div class="sn-who"><span class="av">${esc(ini(me.name))}</span><div style="min-width:0"><b>${esc(me.name)}</b><small>Employee</small></div></div>
-    <nav class="sn-nav">${mods().map((m) => `<button class="nav ${m === cur ? 'on' : ''}" data-m="${m}">${icon(ICONS[m], 19)}<span>${t(m)}</span></button>`).join('')}</nav>
-    <div class="sn-foot"><button class="btn" id="so2" style="width:100%">${t('signout')}</button><div class="powered"><span>POWERED BY</span><img src="devx-logo-dark.png" alt="DevX Technologies"></div></div>
-  </aside><div class="scrim" id="scrim" hidden></div>`}
+  ${drawerHtml(SH)}
   ${railHtml(SH)}
   <main>
     ${pageHeadHtml(SH)}
@@ -273,18 +268,11 @@ function shell() {
     ${isStaffUser() ? '<label class="sr" for="estSel">Entity</label><select id="estSel" class="btn" style="max-width:260px" title="Entity"></select>' : ''}</div>
     <div class="chips" id="chips" style="margin-bottom:18px"></div>
     <div id="agent"></div><section id="view"><div class="loading">Loading…</div></section>
-  </main></div>`;
+  </main>${tabbarHtml(SH)}</div>`;
   document.querySelectorAll('.nav').forEach((b) => (b.onclick = () => go(b.dataset.m)));
   if ($('#so')) $('#so').onclick = signOut;
-  if (!isStaffUser()) {
-    const sn = $('#sidenav'), scrim = $('#scrim'), mb = $('#menuBtn');
-    const setOpen = (o) => { document.body.classList.toggle('navopen', o); scrim.hidden = !o; mb.setAttribute('aria-expanded', String(o)); if (o) sn.querySelector('.nav.on')?.focus(); };
-    mb.onclick = () => setOpen(!document.body.classList.contains('navopen'));
-    $('#snClose').onclick = () => setOpen(false); scrim.onclick = () => setOpen(false);
-    sn.onkeydown = (ev) => { if (ev.key === 'Escape') { setOpen(false); mb.focus(); } };
-    $('#so2').onclick = signOut;
-    document.body.classList.remove('navopen');
-  }
+  if ($('#so2')) $('#so2').onclick = signOut;
+  document.querySelectorAll('#tabbar [data-m]').forEach((b) => (b.onclick = () => go(b.dataset.m)));
   $('#whoBtn').onclick = (e) => { e.stopPropagation(); const m = $('#whoMenu'); m.hidden = !m.hidden; $('#whoBtn').setAttribute('aria-expanded', String(!m.hidden)); };
   if (!window.__whoBound) { window.__whoBound = true; document.addEventListener('click', (e) => { const m = $('#whoMenu'); if (m && !m.hidden && !e.target.closest('#whoMenu')) m.hidden = true; }); }
   { const on = document.querySelector('.navpills .nav.on'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' }); }
@@ -1889,5 +1877,17 @@ window.waslFace?.init({ api, toast, esc });
 installExt({ views, STAFF_MODS, EMP_MODS, ICONS, T, api, V, esc, AED, toast, fail, has, pill, sheetForm, icon, fileToBase64, openFile, kv, currentEst, ests: () => ESTS, tenantId, translate: (el) => translateTree(el, L) });
 
 window.addEventListener('hashchange', () => { const m = location.hash.slice(1); if (token && mods().includes(m) && m !== cur) { cur = m; shell(); } });
+
+// Phones: give every table cell a data-label from its column header so tables can reflow into readable cards.
+(() => {
+  let q = 0;
+  const label = () => { q = 0; document.querySelectorAll('#root table:not([data-rl])').forEach((tb) => {
+    const heads = [...tb.querySelectorAll('thead th')].map((th) => th.textContent.trim()); if (!heads.length) return;
+    tb.dataset.rl = '1'; tb.classList.add('rtable'); if (heads.length > 9 || tb.closest('.nostack')) tb.classList.add('nostack');
+    const paint = () => tb.querySelectorAll('tbody tr').forEach((tr) => { let c = 0; [...tr.children].forEach((td) => { const span = Number(td.getAttribute('colspan') || 1); if (span > 1) td.classList.add('rspan'); else if (heads[c] && !td.dataset.label) td.dataset.label = heads[c]; c += span; }); });
+    paint(); const body = tb.tBodies[0]; if (body) new MutationObserver(paint).observe(body, { childList: true });
+  }); };
+  new MutationObserver(() => { if (!q) q = requestAnimationFrame(label); }).observe(document.getElementById('root'), { childList: true, subtree: true });
+})();
 startBackground();
 token ? shell() : loginView();

@@ -49,6 +49,70 @@ export function navHtml(ctx) {
   }).join('')}</nav>`;
 }
 
+// ---------------------------------------------------------------- phones & tablets: grouped drawer + bottom tab bar
+const PRIMARY = { staff: ['dash', 'emp', 'leave', 'pay', 'attendance'], emp: ['ehome', 'eclock', 'eleave', 'epay', 'ereq'] };
+const SHORT = { dash: 'Home', emp: 'People', leave: 'Leave', pay: 'Payroll', attendance: 'Attendance', ehome: 'Home', eclock: 'Attendance', eleave: 'Leave', epay: 'Payslips', ereq: 'Requests' };
+const SHORT_AR = { dash: 'الرئيسية', emp: 'الموظفون', leave: 'الإجازات', pay: 'الرواتب', attendance: 'الحضور', ehome: 'الرئيسية', eclock: 'الحضور', eleave: 'الإجازات', epay: 'الرواتب', ereq: 'الطلبات' };
+
+/** Slide-out drawer used below 961px for HR and employees: every module, grouped like the desktop menus. */
+export function drawerHtml(ctx) {
+  const allowed = ctx.mods(); const set = new Set(allowed); const ar = ctx.lang() === 'ar';
+  const groups = groupsFor(ctx).map((g) => ({ ...g, mods: g.mods.filter((m) => set.has(m)) })).filter((g) => g.mods.length);
+  const placed = new Set(groups.flatMap((g) => g.mods)); const rest = allowed.filter((m) => !placed.has(m));
+  if (rest.length) groups.push({ key: 'more', label: 'More', labelAr: 'المزيد', mods: rest });
+  const tool = (id, label, d) => `<button class="sn-tool" id="${id}" type="button">${ctx.icon(d, 18)}<span>${label}</span></button>`;
+  const dark = document.documentElement.dataset.mode === 'dark';
+  return `<aside class="sidenav" id="sidenav" aria-label="Main" role="dialog" aria-modal="true">
+    <div class="sn-head"><span class="mark">W</span><div><b>Wasl</b><small>${ctx.isStaff() ? ctx.esc(ctx.estName() || 'HR workspace') : 'Employee app'}</small></div><button class="iconbtn sn-close" id="snClose" aria-label="Close menu">${ctx.icon('M6 6l12 12M18 6L6 18', 18)}</button></div>
+    <div class="sn-who"><span class="av">${ctx.esc(ctx.ini(ctx.me().name))}</span><div style="min-width:0"><b>${ctx.esc(ctx.me().name)}</b><small>${ctx.esc(ctx.isStaff() ? ctx.me().roles.map((r) => r.replace('_', ' ')).join(', ') : 'Employee')}</small></div></div>
+    <div class="sn-tools">
+      ${tool('dSearch', 'Search', 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4')}
+      ${ctx.isStaff() ? tool('dAdd', 'Create', 'M12 5v14M5 12h14') : tool('dTag', 'ID tag', 'M4 6h16v12H4zM8 10h3M8 14h5M15 10h2v4h-2z')}
+      ${tool('dMode', dark ? 'Light' : 'Dark', dark ? 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 2v2M12 20v2M2 12h2M20 12h2' : 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z')}
+      ${tool('dLang', ar ? 'English' : 'عربي', 'M4 5h8M8 3v2M5 13c2-2 4-5 5-8M7 9c1 2 3 4 5 5M13 21l4-9 4 9M14.5 18h5')}
+    </div>
+    <nav class="sn-nav">${groups.map((g) => `<div class="sn-group"><div class="sn-gl">${ctx.esc(ar ? g.labelAr : g.label)}<span class="gbadge" data-badge="${g.key}" hidden></span></div>${g.mods.map((m) => `<button class="nav ${m === ctx.cur ? 'on' : ''}" data-m="${m}" ${m === ctx.cur ? 'aria-current="page"' : ''}><span class="nav-ic">${ctx.icon(ctx.ICONS[m], 19)}</span><span class="nav-t"><b>${ctx.esc(ctx.t(m))}</b>${DESC[m] ? `<small>${ctx.esc(DESC[m])}</small>` : ''}</span><span class="gbadge sm" data-badge="m:${m}" hidden></span></button>`).join('')}</div>`).join('')}</nav>
+    <div class="sn-foot"><button class="btn" id="so2" style="width:100%">${ctx.t('signout')}</button><div class="powered"><span>POWERED BY</span><img src="devx-logo-dark.png" alt="DevX Technologies"></div></div>
+  </aside><div class="scrim" id="scrim" hidden></div>`;
+}
+
+/** Bottom tab bar on phones: four primary destinations plus "Menu" that opens the full drawer. */
+export function tabbarHtml(ctx) {
+  const set = new Set(ctx.mods()); const ar = ctx.lang() === 'ar';
+  const prim = PRIMARY[ctx.isStaff() ? 'staff' : 'emp'].filter((m) => set.has(m)).slice(0, 4);
+  const inPrim = prim.includes(ctx.cur);
+  return `<nav class="tabbar" id="tabbar" aria-label="Quick navigation">${prim.map((m) => `<button class="tb ${m === ctx.cur ? 'on' : ''}" data-m="${m}" ${m === ctx.cur ? 'aria-current="page"' : ''}>${ctx.icon(ctx.ICONS[m], 22)}<span>${ctx.esc((ar ? SHORT_AR : SHORT)[m] || ctx.t(m))}</span><span class="gbadge sm" data-badge="m:${m}" hidden></span></button>`).join('')}
+    <button class="tb ${inPrim ? '' : 'on'}" id="tbMenu" aria-controls="sidenav" aria-expanded="false">${ctx.icon('M4 7h16M4 12h16M4 17h10', 22)}<span>${inPrim ? (ar ? 'القائمة' : 'Menu') : ctx.esc(ctx.t(ctx.cur))}</span></button></nav>`;
+}
+
+/** Drawer open/close, focus handling and the quick tools inside it. */
+function wireDrawer(ctx) {
+  const $ = (id) => document.getElementById(id);
+  const sn = $('sidenav'), scrim = $('scrim'); if (!sn) return;
+  const triggers = [$('menuBtn'), $('tbMenu')].filter(Boolean);
+  let opener = null;
+  const setOpen = (o) => {
+    document.body.classList.toggle('navopen', o); scrim.hidden = !o; triggers.forEach((t) => t.setAttribute('aria-expanded', String(o)));
+    if (o) { opener = document.activeElement; const on = sn.querySelector('.nav.on'); on?.scrollIntoView({ block: 'center' }); (on || sn.querySelector('.nav'))?.focus({ preventScroll: true }); } else opener?.focus?.({ preventScroll: true });
+  };
+  triggers.forEach((t) => (t.onclick = (e) => { e.stopPropagation(); setOpen(!document.body.classList.contains('navopen')); }));
+  $('snClose').onclick = () => setOpen(false); scrim.onclick = () => setOpen(false);
+  sn.onkeydown = (ev) => {
+    if (ev.key === 'Escape') setOpen(false);
+    if (ev.key === 'Tab') { const f = [...sn.querySelectorAll('button')].filter((b) => b.offsetParent); const a = f[0], z = f.at(-1); if (ev.shiftKey && document.activeElement === a) { z.focus(); ev.preventDefault(); } else if (!ev.shiftKey && document.activeElement === z) { a.focus(); ev.preventDefault(); } }
+  };
+  sn.querySelectorAll('.nav[data-m]').forEach((b) => (b.onclick = () => { document.body.classList.remove('navopen'); ctx.go(b.dataset.m); }));
+  // swipe the drawer closed
+  let x0 = null; sn.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; }, { passive: true });
+  sn.addEventListener('touchend', (e) => { if (x0 == null) return; const dx = e.changedTouches[0].clientX - x0; const rtl = document.documentElement.dir === 'rtl'; if ((rtl ? dx : -dx) > 70) setOpen(false); x0 = null; }, { passive: true });
+  if ($('dSearch')) $('dSearch').onclick = () => { setOpen(false); palette(ctx, 'search'); };
+  if ($('dAdd')) $('dAdd').onclick = () => { setOpen(false); palette(ctx, 'add'); };
+  if ($('dTag')) $('dTag').onclick = () => { setOpen(false); ctx.go('etag'); };
+  if ($('dMode')) $('dMode').onclick = () => { const dark = document.documentElement.dataset.mode === 'dark'; store.set('wasl_mode', dark ? 'light' : 'dark'); applyTheme(); syncThemeUi(ctx); const d2 = !dark; $('dMode').innerHTML = `${ctx.icon(d2 ? 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 2v2M12 20v2M2 12h2M20 12h2' : 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z', 18)}<span>${d2 ? 'Light' : 'Dark'}</span>`; };
+  if ($('dLang')) $('dLang').onclick = () => { document.body.classList.remove('navopen'); ctx.toggleLang(); };
+  document.body.classList.remove('navopen');
+}
+
 // ---------------------------------------------------------------- sliding pill (edges move at different speeds)
 const ease = { out: (t) => 1 - (1 - t) ** 3, inOut: (t) => (t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2) };
 const pillState = { l: 0, r: 0, t: 0, b: 0, ready: false, raf: 0 };
@@ -155,6 +219,7 @@ function shortcuts(ctx) {
 let keysBound = false, clockTimer = 0;
 export function wireShell(ctx) {
   S = ctx;
+  wireDrawer(ctx);
   const nav = document.getElementById('gnav');
   const closeMenus = () => nav?.querySelectorAll('.gmenu').forEach((m) => { m.hidden = true; m.previousElementSibling.setAttribute('aria-expanded', 'false'); });
   if (nav) {
